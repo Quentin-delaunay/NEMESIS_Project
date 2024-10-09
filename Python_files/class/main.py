@@ -69,8 +69,8 @@ def main():
     add_node(G, 'sink', external_sink.name, external_sink.location, demand=external_sink.demand, is_external=True)
 
     # Add transmission lines (edges)
-    transmission_line_1 = Transmission("Electric Line 1", "electric", capacity=500, flux=300)
-    transmission_line_2 = Transmission("Gas Pipeline", "pipeline", capacity=400, flux=200)
+    transmission_line_1 = Transmission("Electric Line 1", "electric", max_capacity=500, current_flux=300)
+    transmission_line_2 = Transmission("Gas Pipeline", "pipeline", max_capacity=400, current_flux=200)
     add_edge(G, coal_plant.name, city_sink.name, transmission_line_1)
     add_edge(G, gas_plant.name, external_sink.name, transmission_line_2)
     add_edge(G, nuclear_plant.name, industrial_sink.name, transmission_line_1)

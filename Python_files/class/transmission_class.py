@@ -1,13 +1,14 @@
 class Transmission:
     """Class representing a transmission line between nodes (edges in the graph)"""
 
-    def __init__(self, transmission_type, max_capacity, current_flux=0, is_operational=True):
+    def __init__(self, name, transmission_type, max_capacity, current_flux=0, is_operational=True):
         """
         :param transmission_type: Type of transmission ('electric', 'pipeline', 'road/train')
         :param max_capacity: Maximum capacity of the transmission (e.g., MW for electric, units of fuel for pipelines)
         :param current_flux: Current flow/flux through the transmission line
         :param is_operational: Boolean indicating whether the transmission line is operational (True=on, False=off)
         """
+        self.name = name
         self.transmission_type = transmission_type  # Type: 'electric', 'pipeline', 'road/train'
         self.max_capacity = max_capacity  # Maximum capacity in appropriate units
         self.current_flux = current_flux  # Current flow through the transmission
