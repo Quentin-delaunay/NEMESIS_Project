@@ -1,8 +1,8 @@
 import pygame
 import networkx as nx
-from generator_class import CoalPlant, GasPlant, NuclearPlant, Renewable
-from sinks_class import Sink
-from sources_class import Source
+from SoS_Pygame_PoC.Python_files.class.Generator import CoalPlant, GasPlant, NuclearPlant, Renewable
+from SoS_Pygame_PoC.Python_files.class.Sink import Sink
+from SoS_Pygame_PoC.Python_files.class.Source import Source
 from transmission_class import Transmission
 
 # Initialize Pygame
