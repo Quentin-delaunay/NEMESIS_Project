@@ -1,9 +1,10 @@
 import pygame
 import networkx as nx
-from SoS_Pygame_PoC.Python_files.class.Generator import CoalPlant, GasPlant, NuclearPlant, Renewable
-from SoS_Pygame_PoC.Python_files.class.Sink import Sink
-from SoS_Pygame_PoC.Python_files.class.Source import Source
-from transmission_class import Transmission
+import matplotlib.pyplot as plt
+from Generator import CoalPlant, GasPlant, NuclearPlant, Renewable
+from Sink import Sink
+from Source import Source
+from Transmission import Transmission
 
 # Initialize Pygame
 pygame.init()
@@ -38,7 +39,8 @@ def draw_graph(graph, screen):
 
 # Function to add a node
 def add_node(graph, node_type, name, location, **kwargs):
-    graph.add_node(name, type=node_type, location=location, **kwargs)
+    print(location)
+    graph.add_node(name, type=node_type, **kwargs)
 
 # Function to add an edge
 def add_edge(graph, node1, node2, transmission):
@@ -95,5 +97,46 @@ def main():
 
     pygame.quit()
 
+def main2():
+    
+    # Predefined nodes (For demonstration purposes)
+    coal_plant = CoalPlant("Coal Plant A", (200, 200), 500, 250)
+    gas_plant = GasPlant("Gas Plant B", (400, 200), 300, 250)
+    nuclear_plant = NuclearPlant("Nuclear Plant C", (600, 200), 1200, 250, is_on=True)
+    solar_plant = Renewable("Solar Plant D", (300, 400), 100, "Solar", 80)
+    
+    city_sink = Sink("City A", (200, 600), demand={'gas': 100, 'fuel': 200, 'electricity': 400})
+    industrial_sink = Sink("Factory B", (600, 600), demand={'electricity': 500})
+    external_sink = Sink("External", (700, 300), is_external=True)
+
+    # Add nodes to the graph
+    add_node(G, 'generator', coal_plant.name, (200, 200))
+    add_node(G, 'generator', gas_plant.name, gas_plant.location, capacity=gas_plant.capacity, current_production=gas_plant.current_production)
+    add_node(G, 'generator', nuclear_plant.name, nuclear_plant.location, capacity=nuclear_plant.capacity, current_production=nuclear_plant.current_production)
+    add_node(G, 'generator', solar_plant.name, solar_plant.location, capacity=solar_plant.capacity, current_production=solar_plant.current_production)
+    add_node(G, 'sink', city_sink.name, city_sink.location, demand=city_sink.demand)
+    add_node(G, 'sink', industrial_sink.name, industrial_sink.location, demand=industrial_sink.demand)
+    add_node(G, 'sink', external_sink.name, external_sink.location, demand=external_sink.demand, is_external=True)
+
+    # Add transmission lines (edges)
+    transmission_line_1 = Transmission("Electric Line 1", "electric", max_capacity=500, current_flux=300)
+    transmission_line_2 = Transmission("Gas Pipeline", "pipeline", max_capacity=400, current_flux=200)
+    add_edge(G, coal_plant.name, city_sink.name, transmission_line_1)
+    add_edge(G, gas_plant.name, external_sink.name, transmission_line_2)
+    add_edge(G, nuclear_plant.name, industrial_sink.name, transmission_line_1)
+    add_edge(G, solar_plant.name, industrial_sink.name, transmission_line_1)
+
+    plt.figure(figsize=(12,12))
+    pos = nx.get_node_attributes(G, "pos")
+
+    nx.draw(G)
+    # nx.draw_networkx_nodes(G, pos, node_color="white", node_size=500, edgecolors="black")#, font_size=11)
+    # nx.draw_networkx_labels(G, pos)
+    plt.tight_layout()
+    plt.axis('off')
+    plt.subplots_adjust(left=0.2, right=1, top=0.9, bottom=0)
+    # plt.savefig("first_graph.pdf", bbox_inches='tight')
+    plt.show()
+
 if __name__ == "__main__":
-    main()
+    main2()
