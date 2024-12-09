@@ -5,3 +5,4 @@ __pycache__
 *.geojson
 *.pdf
 *.html
+*.zip
