@@ -69,7 +69,7 @@ def load_data():
     # Energy_one_year = tot_power_installed * 8760 
 
     # Compute needed energy per year
-    Power_needed = total_population * Elec_per_CP_2024  # MWh pour une année
+    Power_needed = total_population * Elec_per_CP_2024  # yearly MWh
 
     # Sort plants in descending order of installed capacity
     sorted_plants = data.sort_values(by='Install_MW', ascending=False)
@@ -81,19 +81,19 @@ def load_data():
     for _, row in sorted_plants.iterrows():
         if remaining_power_needed > 0:
             plant_capacity = row['Install_MW']
-            # Convertir la capacité en MWh sur l'année
-            plant_annual_output = plant_capacity   # MW * heures/an
+            # Convert capacity in yearly MWh
+            plant_annual_output = plant_capacity   # MWh/year
 
 
             if plant_annual_output <= remaining_power_needed:
-                # Si la centrale peut couvrir la demande restante
+                # If the plant can cover the remaining demand
                 prim_source = row['PrimSource'].lower()  # Energy source of the plant
                 if prim_source not in filtered_power_plants:
                     filtered_power_plants[prim_source] = []
                 filtered_power_plants[prim_source].append(row)
                 remaining_power_needed -= plant_annual_output
             else:
-                # Ajouter la centrale partiellement (si nécessaire)
+                # Partially add the power plant (if necessary)
                 prim_source = row['PrimSource'].lower()  # Energy source of the plant
                 if prim_source not in filtered_power_plants:
                     filtered_power_plants[prim_source] = []

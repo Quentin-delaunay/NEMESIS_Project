@@ -71,7 +71,7 @@ ratio_gas_elec = 373647/738986
 # Energy_one_year = tot_power_installed * 8760 
 
 # Compute needed energy per year
-Power_needed = total_population * Elec_per_CP_2024  # MWh pour une année
+Power_needed = total_population * Elec_per_CP_2024  # yearly MWh
 
 # Sort plants in descending order of installed capacity
 sorted_plants = data.sort_values(by='Install_MW', ascending=False)
@@ -83,12 +83,12 @@ filtered_power_plants = {}
 for _, row in sorted_plants.iterrows():
     if remaining_power_needed > 0:
         plant_capacity = row['Install_MW']
-        # Convertir la capacité en MWh sur l'année
-        plant_annual_output = plant_capacity   # MW * heures/an
+        # Convert capacity in yearly MWh
+        plant_annual_output = plant_capacity   # MWh/year
         
 
         if plant_annual_output <= remaining_power_needed:
-            # Si la centrale peut couvrir la demande restante
+            # If the plant can cover the remaining demand
             prim_source = row['PrimSource'].lower()  # Energy source of the plant
             if prim_source not in filtered_power_plants:
                 filtered_power_plants[prim_source] = []
@@ -96,7 +96,7 @@ for _, row in sorted_plants.iterrows():
                 filtered_power_plants[prim_source].append(row)
             remaining_power_needed -= plant_annual_output
         else:
-            # Ajouter la centrale partiellement (si nécessaire)
+            # Partially add the power plant (if necessary)
             prim_source = row['PrimSource'].lower()  # Energy source of the plant
             if prim_source not in filtered_power_plants:
                 filtered_power_plants[prim_source] = []
@@ -160,13 +160,13 @@ print(city_names)
 source_colors = {
     'nuclear': ('b', 'o'), 'natural gas': ('g', 's'), 'coal': ('k', 'D')}
 
-# Initialiser la figure et les axes pour l'affichage
+# Initialize figure and axes for display
 fig, ax = plt.subplots(figsize=(10, 10))
 
 # Plot Georgia map
 gpd.GeoSeries([georgia_union]).plot(ax=ax, color='lightgray', edgecolor='black')
 
-# Afficher les zones de haute population avec une carte de chaleur
+# Display high-population areas with a heat map
 high_pop_areas.plot(column='POP2010', cmap='inferno', legend=False, ax=ax, edgecolor='black', linewidth=0.5)
 
 
@@ -180,7 +180,7 @@ cbar.set_label('Population')
 cbar.ax.yaxis.set_label_position('left')
 cbar.ax.yaxis.set_ticks_position('right')
 
-# Afficher les lignes de transmission électrique en rouge
+# Display electrical transmission lines in red
 power_lines.plot(ax=ax, color='red', linewidth=1, alpha=0.9, label='Electric Power Line >100 kV', zorder=2)
 
 
