@@ -1,6 +1,7 @@
 import streamlit as st
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from shapely.geometry import Point
 from math import sqrt
 import os
@@ -41,12 +42,14 @@ def haversine(lon1, lat1, lon2, lat2):
 view = st.sidebar.radio("Select View", ["Filtered Data Visualization", "Mathematical Graph Visualization"])
 
 # Sidebar parameters
-st.sidebar.header("Filters")
-filter_pop = st.sidebar.slider("Minimum Urban Area Population", 1000, 100000, 50000, key="pop_filter")
-st.sidebar.caption("Adjust the minimum population required for an urban area to be displayed on the map.")
-max_peak_power = st.sidebar.number_input("Maximum Power Peak (MW)", min_value=5000, max_value=20000, value=11000, step=500, key="peak_power")
-st.sidebar.caption("Set the maximum power peak ever recorded for the region.")
-Power_installed = st.sidebar.slider(
+col1, col2 = st.sidebar.columns(2)
+
+col1.header("Filters")
+filter_pop = col1.slider("Minimum Urban Area Population", 1000, 100000, 50000, key="pop_filter")
+col1.caption("Adjust the minimum population required for an urban area to be displayed on the map.")
+max_peak_power = col1.number_input("Maximum Power Peak (MW)", min_value=5000, max_value=20000, value=11000, step=500, key="peak_power")
+col1.caption("Set the maximum power peak ever recorded for the region.")
+Power_installed = col1.slider(
     "Power Installed Scaling Factor",
     min_value=1.0,  # Minimum value
     max_value=5.0,  # Maximum value
@@ -54,9 +57,9 @@ Power_installed = st.sidebar.slider(
     step=0.1,       # Step size for higher precision
     key="power_filter"
 )
-st.sidebar.caption("Set the scaling factor for installed power to visualize power plants proportionately.")
-min_voltage = st.sidebar.slider("Minimum Voltage (kV)", 0, 500, 100, key="voltage_filter")
-st.sidebar.caption("Define the minimum voltage threshold for displaying power transmission lines.")
+col1.caption("Set the scaling factor for installed power to visualize power plants proportionally.")
+min_voltage = col1.slider("Minimum Voltage (kV)", 0, 500, 100, key="voltage_filter")
+col1.caption("Define the minimum voltage threshold for displaying power transmission lines.")
 
 # Constants
 GA_energy_consumption = {
@@ -91,7 +94,7 @@ high_pop_areas['diameter'] = high_pop_areas['SQMI'].apply(lambda sqmi: sqrt(sqmi
 total_population = high_pop_areas['POP2010'].sum()
 
 # Calculate maximum estimated power consumption based on filtered population
-max_estimated_consumption = (max_peak_power/MAX_POP  ) * ( total_population)  # in MW
+max_estimated_consumption = (max_peak_power/MAX_POP) * (total_population)  # in MW
 
 # Load pipelines, power lines, and plants
 gas_pipeline_path = r'data/NaturalGas_InterIntrastate_Pipelines_US_georgia.geojson'
@@ -119,7 +122,7 @@ for _, row in sorted_plants.iterrows():
         filtered_power_plants[prim_source].append(row)
         remaining_power_needed -= plant_capacity
 
-# Metrics
+# Installed power for filtered power plants
 installed_power = sum(
     sum(plant['Install_MW'] for plant in plants)
     for plants in filtered_power_plants.values()
@@ -128,11 +131,11 @@ installed_power = sum(
 
 
 # Display updated metrics
-st.sidebar.subheader("Metrics")
-st.sidebar.metric(label="Installed Power (MW)", value=f"{installed_power:.2f}")
-st.sidebar.metric(label="Total Population", value=f"{total_population:,}")
-st.sidebar.metric(label="Max Population", value=f"{MAX_POP:,}")
-st.sidebar.metric(label="Max Estimated Power Consumption (MW)", value=f"{max_estimated_consumption:.2f}")
+col2.header("Metrics")
+col2.metric(label="Installed Power (MW)", value=f"{installed_power:.2f}")
+col2.metric(label="Total Population", value=f"{total_population:,}")
+col2.metric(label="Max Population", value=f"{MAX_POP:,}")
+col2.metric(label="Max Estimated Power Consumption (MW)", value=f"{max_estimated_consumption:.2f}")
 
 
 # Extract substations and create edges
@@ -160,22 +163,18 @@ if view == "Filtered Data Visualization":
     fig, ax = plt.subplots(figsize=(12, 8))
     gpd.GeoSeries([georgia_union]).plot(ax=ax, color='lightgray', edgecolor='black', zorder=0)
     # Plot high population areas
-    pop_plot = high_pop_areas.plot(column='POP2010', cmap='inferno', legend=False, ax=ax, edgecolor='black', linewidth=0.5)
+    pop_plot = high_pop_areas.plot(column='POP2010', cmap='inferno', legend=False, ax=ax, edgecolor='black', linewidth=0.5, norm=LogNorm(vmin=high_pop_areas['POP2010'].min(), vmax=high_pop_areas['POP2010'].max()))
 
     # Add colorbar for heatmap
-    sm = plt.cm.ScalarMappable(cmap='inferno', norm=plt.Normalize(vmin=high_pop_areas['POP2010'].min(), vmax=high_pop_areas['POP2010'].max()))
+    sm = plt.cm.ScalarMappable(cmap='inferno', norm=LogNorm(vmin=high_pop_areas['POP2010'].min(), vmax=high_pop_areas['POP2010'].max()))
     cbar = fig.colorbar(sm, ax=ax, orientation='vertical', pad=0.1, location='left')
 
     cbar.set_label('Population in Urban Areas')
     power_lines.plot(ax=ax, color='red', linewidth=0.5, label='Power Lines', zorder=2)
-    substations_gdf.plot(ax=ax, color='blue', markersize=10, label='Substations', zorder=3)
+    substations_gdf.plot(ax=ax, color='darkblue', marker = 'o', markersize=5, label='Substations', zorder=3)
 
     # Plot power plants
-    source_colors = {
-        'nuclear': ('blue', 'o'), 'natural gas': ('green', 's'), 'coal': ('black', 'D'),
-        'hydroelectric': ('cyan', '^'), 'petroleum': ('magenta', 'v'), 'pumped storage': ('orange', '^'),
-        'biomass': ('brown', 'P'), 'other': ('gray', '*'), 'solar': ('yellow', 'h'), 'batteries': ('purple', 'o')
-    }
+
     for source, plants in filtered_power_plants.items():
         color, marker = source_colors.get(source, ('gray', 'o'))
         for plant in plants:
@@ -184,13 +183,13 @@ if view == "Filtered Data Visualization":
                        s=size, alpha=0.8, edgecolor='black', marker=marker, zorder=3)
 
     handles = [
-        mlines.Line2D([], [], color='blue', label='Substations'),
+        mlines.Line2D([], [], color='darkblue', marker='o', markersize=5, label='Substations', linestyle='None'),
         mlines.Line2D([], [], color='red', label='Power Lines')
     ] + [
-        mlines.Line2D([], [], color=color, marker=marker, markersize=10, label=source.capitalize())
+        mlines.Line2D([], [], color=color, marker=marker, markersize=10, label=source.capitalize(), linestyle='None')
         for source, (color, marker) in source_colors.items()
     ]
-    ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1), title='Legend')
+    ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1))
     plt.title("Georgia Energy Infrastructure")
     plt.axis('off')
     st.pyplot(fig)
@@ -201,7 +200,7 @@ if view == "Filtered Data Visualization":
 
         # Structures to store data
         buses = []  # List of buses
-        lines = []  # List of lines
+        lines = []  # List of lines #TODO: unused
         transformers = []  # List of transformers
         existing_buses = {}  # Track buses by location
 
@@ -264,11 +263,11 @@ if view == "Filtered Data Visualization":
                 if bus['bus_id'] == end_bus:
                     bus['lines'].append(line_id)
 
-        # Save data to CSV files
-        pd.DataFrame(buses).to_csv(f"{output_folder}buses.csv", index=False)
-
         # File path to the saved buses CSV
         buses_file_path = f"{output_folder}buses.csv"
+
+        # Save data to CSV files
+        pd.DataFrame(buses).to_csv(buses_file_path, index=False) #TODO: remove as file is overwritten with consolidated buses later?
 
         # Load the buses CSV
         buses_df = pd.read_csv(buses_file_path)
@@ -311,8 +310,7 @@ if view == "Filtered Data Visualization":
         # Save the DataFrame to a CSV file
         transformers_df.to_csv(transformers_file_path, index=False)
     
-        pd.DataFrame(lines).to_csv(f"{output_folder}lines.csv", index=False)
-        pd.DataFrame(transformers).to_csv(f"{output_folder}transformers.csv", index=False)
+        pd.DataFrame(lines).to_csv(f"{output_folder}lines.csv", index=False) #TODO: remove as file is empty?
 
         # Save Urban Areas as Pandapower Loads
         loads = []
@@ -397,8 +395,6 @@ if view == "Filtered Data Visualization":
 
         st.success("Generator data with associated bus information saved successfully!")
 
-
-
         st.success("Data saved successfully for Pandapower network creation, prioritizing lower voltage substations!")
 
 
@@ -475,12 +471,12 @@ elif view == "Mathematical Graph Visualization":
         folium.PolyLine([start_coords, end_coords], color=color, weight=2).add_to(m)
     
     
-        # Add substations to the map
+    # Add substations to the map
     for idx, substation in substations_gdf.iterrows():
         folium.CircleMarker(
             location=(substation.geometry.y, substation.geometry.x),
             radius=1,
-            color='blue',
+            color='darkblue',
             fill=True,
             fill_color='blue',
             tooltip=f"Substation {idx}"
@@ -513,7 +509,7 @@ elif view == "Mathematical Graph Visualization":
         'batteries': ('purple', 'battery-full')
     }
 
-            
+    # Add generators to the map     
     for source, plants in filtered_power_plants.items():
         color, icon_name = source_icons.get(source, ('gray', 'question'))  # Same color and icon as before
         for generator in plants:
