@@ -1,3 +1,9 @@
+# ------------------------------------------------------
+# Author: Quentin Delaunay
+# Date: January 20, 2025
+# Description: Script for filtering the data and creating a graph visualization with streamlit.
+# File: app.py
+# ------------------------------------------------------
 import streamlit as st
 import geopandas as gpd
 import matplotlib.pyplot as plt
