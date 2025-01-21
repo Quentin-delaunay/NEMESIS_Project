@@ -150,7 +150,7 @@ for gen_idx in net.gen.index:
 # 10) Time-Stepped OPF Simulation
 #     Simulate 1 day (24 hrs) with sinusoidal load variation
 # -------------------------------------------------------------------
-n_timesteps = 12
+n_timesteps = 24
 scaling_factors = 0.8 + 0.2 * np.sin(2 * np.pi * np.arange(n_timesteps) / 24)
 
 # Prepare to store results
@@ -269,7 +269,7 @@ else:
 fig, ax = plt.subplots(figsize=(12, 8))
 
 # Plot nodes (buses)
-nx.draw_networkx_nodes(graph, pos, node_size=5, node_color="black", alpha=0.7, ax=ax)
+nx.draw_networkx_nodes(graph, pos, node_size=50, node_color="black", alpha=0.9, ax=ax)
 
 # Plot edges (lines) with heatmap coloring
 nx.draw_networkx_edges(
