@@ -245,7 +245,7 @@ for _, load in loads_df.iterrows():
         pp.create_load(
             net,
             bus=departure_bus,
-            p_mw=load['p_kw'] * 0.001 * 0.98,  # Convert kW to MW
+            p_mw=load['p_kw'] * 0.001,  # Convert kW to MW
             max_p_mw=load['p_kw'] * 0.001,
             min_p_mw=0,  # Default to 0.0 if not provided
             name=load['name'],
@@ -375,6 +375,10 @@ print(net.res_gen[['p_mw', 'vm_pu']])
 total_generation = sum(net.res_gen['p_mw'])
 total_demand = sum(net.res_load['p_mw'])
 print(f"Generation: {total_generation} MW, Demand: {total_demand} MW")
+
+
+
+
 
 
 # Save the network to a pickle file

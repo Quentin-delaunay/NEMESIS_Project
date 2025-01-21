@@ -8,12 +8,14 @@ import pandapower as pp
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import re
 
 # -------------------------------------------------------------------
 # 1) Load the Pandapower network from a pickle file
 # -------------------------------------------------------------------
 net = pp.from_pickle("my_network.p")
+
 
 # -------------------------------------------------------------------
 # 2) Adjust generator voltage limits (sometimes aids convergence)
@@ -148,7 +150,7 @@ for gen_idx in net.gen.index:
 # 10) Time-Stepped OPF Simulation
 #     Simulate 1 day (24 hrs) with sinusoidal load variation
 # -------------------------------------------------------------------
-n_timesteps = 24
+n_timesteps = 12
 scaling_factors = 0.8 + 0.2 * np.sin(2 * np.pi * np.arange(n_timesteps) / 24)
 
 # Prepare to store results
@@ -202,32 +204,25 @@ run_time_series_opf(net, scaling_factors)
 # Filter valid time steps
 valid_steps = [i for i, val in enumerate(demand_history) if val is not None]
 
+
 # -------------------------------------------------------------------
-# 12) Plot - Evolution of Demand vs. Generation
+# 12) Combine Demand, Generation, and Individual Generators in One Plot
 # -------------------------------------------------------------------
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(14, 8))
+
+# Plot total demand and generation
 plt.plot(
     valid_steps,
     [demand_history[i] for i in valid_steps],
-    label="Total Demand (MW)", marker="o"
+    label="Total Demand (MW)", marker="o", linewidth=2
 )
 plt.plot(
     valid_steps,
     [gen_history[i] for i in valid_steps],
-    label="Total Generation (MW)", marker="s"
+    label="Total Generation (MW)", marker="s", linewidth=2
 )
-plt.title("Demand and Generation Over Time")
-plt.xlabel("Time Steps (hours)")
-plt.ylabel("Power (MW)")
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.show()
 
-# -------------------------------------------------------------------
-# 13) Plot - Individual Generator Outputs
-# -------------------------------------------------------------------
-plt.figure(figsize=(12, 8))
+# Plot outputs of generators producing more than 100 MW at least once
 for gen_idx in net.gen.index:
     gen_name = net.gen.at[gen_idx, "name"]
     series_values = [
@@ -235,12 +230,61 @@ for gen_idx in net.gen.index:
         for t in valid_steps
         if pd.notnull(generator_output_history.loc[t, gen_idx])
     ]
-    plt.plot(valid_steps, series_values, label=gen_name, marker=".")
+    if max(series_values, default=0) > 100:  # Check if any value exceeds 100 MW
+        plt.plot(valid_steps, series_values, label=f"{gen_name}", linestyle="--", marker=".")
 
-plt.title("Generator Outputs Over Time")
+plt.title("Demand, Generation, and Significant Generators Outputs Over Time")
 plt.xlabel("Time Steps (hours)")
 plt.ylabel("Power (MW)")
-plt.legend(loc="upper right", bbox_to_anchor=(1.3, 1.0))
+plt.legend(loc="center left", bbox_to_anchor=(1, 0.5))  # Place legend to the side
 plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# -------------------------------------------------------------------
+# 13) Visualize Final State of the Network with a Heatmap
+# -------------------------------------------------------------------
+import networkx as nx
+import numpy as np
+
+# Convert pandapower network to a NetworkX graph
+graph = pp.topology.create_nxgraph(net, include_lines=True, include_trafos=False)
+
+# Get the loading percentages of lines
+line_loading = net.res_line["loading_percent"]
+
+# Normalize line loading for heatmap coloring (log scale)
+norm = LogNorm(vmin=max(line_loading.min(), 1e-3), vmax=line_loading.max())
+edge_colors = [plt.cm.viridis(norm(val)) for val in line_loading]
+
+
+# Use geographic positions if available (fallback to spring layout)
+if "x" in net.bus_geodata.columns and "y" in net.bus_geodata.columns:
+    pos = {bus: (net.bus_geodata.at[bus, "x"], net.bus_geodata.at[bus, "y"]) for bus in net.bus.index}
+else:
+    print("Geographic positions not available. Using spring layout.")
+    pos = nx.spring_layout(graph, seed=42)
+
+# Draw the network
+fig, ax = plt.subplots(figsize=(12, 8))
+
+# Plot nodes (buses)
+nx.draw_networkx_nodes(graph, pos, node_size=5, node_color="black", alpha=0.7, ax=ax)
+
+# Plot edges (lines) with heatmap coloring
+nx.draw_networkx_edges(
+    graph, pos,
+    edge_color=edge_colors,
+    width=2, ax=ax
+)
+
+# Add colorbar to the same figure
+sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
+sm.set_array([])  # Necessary to create the colorbar
+cbar = fig.colorbar(sm, ax=ax, orientation="vertical")
+cbar.set_label("Line Loading (%)")
+
+ax.set_title("Heatmap of Line Loading in the Final State (Log Scale)")
+ax.axis("off")
 plt.tight_layout()
 plt.show()
