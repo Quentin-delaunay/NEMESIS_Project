@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 # ------------------------------------------------------
 # Author: Quentin Delaunay
 # Date: January 20, 2025
