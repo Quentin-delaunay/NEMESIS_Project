@@ -310,7 +310,7 @@ for _, gen in generators_df.iterrows():
 if not slack_assigned:
     pp.create_ext_grid(net, bus=0, vm_pu=1.0, va_degree=0)
 
-# Check for isolated buses
+# Check for isolated buses #TODO: Check if this is necessary
 isolated_buses = net.bus.index.difference(pd.concat([net.line["from_bus"], net.line["to_bus"], net.trafo["hv_bus"], net.trafo["lv_bus"]]))
 if not isolated_buses.empty:
     print("Isolated buses:", isolated_buses)
