@@ -208,7 +208,9 @@ if view == "Filtered Data Visualization":
     cbar.set_label('Population in Urban Areas')
 
     # Filter and plot baseline infrastructure
-    baseline_power_lines = power_lines[power_lines['VOLTAGE'] >= BASELINE['MIN_VOLTAGE']]
+    power_lines_path = r'data/Transmission_Lines_all.geojson'
+    baseline_power_lines = gpd.read_file(power_lines_path)
+    baseline_power_lines = baseline_power_lines[baseline_power_lines['VOLTAGE'] >= BASELINE['MIN_VOLTAGE']]
     baseline_power_lines.plot(ax=ax_baseline, color='red', linewidth=0.5, label='Power Lines', zorder=2)
 
     # Calculate baseline substations
