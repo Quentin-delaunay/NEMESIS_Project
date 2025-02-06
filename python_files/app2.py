@@ -35,7 +35,7 @@ def filter_population_data(population_gdf, georgia_union, min_pop):
     high_pop_areas = filtered[filtered['POP2010'] > min_pop].copy()
     high_pop_areas['longitude'] = high_pop_areas['geometry'].centroid.x
     high_pop_areas['latitude'] = high_pop_areas['geometry'].centroid.y
-    high_pop_areas['diameter'] = high_pop_areas['SQMI'].apply(lambda sqmi: sqrt(sqmi * 2.58999 / 3.14159) * 2)
+    high_pop_areas['diameter'] = high_pop_areas['SQMI'].apply(lambda sqmi: sqrt(sqmi * 2.58999 / math.pi) * 2)
     return high_pop_areas
 
 @st.cache_data

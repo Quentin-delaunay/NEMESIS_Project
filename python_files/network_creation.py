@@ -376,11 +376,6 @@ total_generation = sum(net.res_gen['p_mw'])
 total_demand = sum(net.res_load['p_mw'])
 print(f"Generation: {total_generation} MW, Demand: {total_demand} MW")
 
-
-
-
-
-
 # Save the network to a pickle file
 pp.to_pickle(net, "my_network.p")
 
