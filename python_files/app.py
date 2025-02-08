@@ -67,6 +67,7 @@ col1.caption("Set the scaling factor for installed power to visualize power plan
 min_voltage = col1.slider("Minimum Voltage (kV)", 0, 500, 100, key="voltage_filter")
 col1.caption("Define the minimum voltage threshold for displaying power transmission lines.")
 
+#TODO: remove useless constants?
 # Constants
 GA_energy_consumption = {
     'Coal': 180.9,
