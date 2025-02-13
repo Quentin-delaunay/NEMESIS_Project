@@ -338,7 +338,7 @@ def run_power_optimization_with_debug(net, max_iterations=5):
 
             # Optimal Power Flow
             print("Running Optimal Power Flow...")
-            pp.runopp(net, delta=1e-6, debug=True, numba=False)
+            pp.runopp(net, delta=1e-6, debug=True)
             print("Optimal Power Flow simulation succeeded.")
 
             print("Optimization completed successfully.")

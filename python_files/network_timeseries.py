@@ -178,7 +178,7 @@ def run_time_series_opf(net, scaling_list):
 
         # Run the OPF
         try:
-            pp.runopp(net, numba=False)
+            pp.runopp(net)
 
             # Collect results
             total_load = net.res_load["p_mw"].sum()
