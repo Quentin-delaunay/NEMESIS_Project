@@ -1,0 +1,2 @@
+Moyenne des résidus: -0.0102
+Ecart-type des résidus: 1297.1527
