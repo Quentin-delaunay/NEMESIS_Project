@@ -58,7 +58,7 @@ if "controllable" not in net.gen.columns:
 # 6) Define typical min-load fractions & marginal costs
 # -------------------------------------------------------------------
 min_load_fractions = {
-    "nuclear": 0.9,       # e.g., 90% minimum load for nuclear
+    "nuclear": 0.8,       # e.g., 90% minimum load for nuclear
     "coal": 0.0,          # e.g., 0% min load for coal
     "natural gas": 0.0,   # e.g., 0% min load for combined-cycle gas
     "pumped storage": 0.00,

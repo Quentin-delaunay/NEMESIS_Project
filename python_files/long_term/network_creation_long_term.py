@@ -104,7 +104,10 @@ for i, bus in buses_df.iterrows():
         net, 
         name=bus['bus_id'], 
         vn_kv=bus['vn_kv'], 
-        geodata=(bus['x'], bus['y'])
+        geodata=(bus['x'], bus['y']),
+        type='b',
+        
+
     )
     bus_index_map[bus['bus_id']] = bus_index
 
@@ -155,7 +158,8 @@ try:
                         vk_percent=params['vk_percent'],
                         pfe_kw=params['pfe_kw'],
                         i0_percent=params['i0_percent'],
-                        name=f"Transformer from {transformer['from_bus']} to {transformer['to_bus']}"
+                        name=f"Transformer from {transformer['from_bus']} to {transformer['to_bus']}",
+                        max_loading_percent=200
                     )
                 else:
                     print(f"No transformer type defined for voltage jump: {voltage_jump}")
@@ -188,7 +192,13 @@ for _, bus1 in buses_df.iterrows():
                                 x_ohm_per_km=0.25,  # Reactance per kilometer in ohms
                                 c_nf_per_km=12,  # Line capacitance per kilometer in nanofarads
                                 max_i_ka=2.0,  # Maximum current capacity in kiloamperes
-                                name=f"Line {line_id}"  # Assign a name to the line based on its unique ID
+                                name=f"Line {line_id}",
+                                #max_loading_percent=150,  # Maximum loading percentage
+                                  # Assign a name to the line based on its unique ID,
+                                #max_loading_percent=200,
+                                #parallel= 3
+                                #aximum loading percentage
+                                
                             )
 
                         else:
@@ -202,7 +212,10 @@ for _, bus1 in buses_df.iterrows():
                                 x_ohm_per_km=0.4,   # Reactance per km
                                 c_nf_per_km=9,      # Capacitance per km
                                 max_i_ka=1.5,       # Maximum current in kA
-                                name="230kV Line"
+                                name="230kV Line",
+                                #max_loading_percent=150,  # Maximum loading percentage
+                                #parallel= 3
+                                
                             )
                         added_lines.add((bus1['bus_id'], bus2['bus_id'], line_id))
                     except Exception as e:
@@ -283,8 +296,8 @@ for _, gen in generators_df.iterrows():
             vm_pu=1.0,  # Voltage magnitude in per unit (typically 1.0)
             min_p_mw=0,  # Minimum active power generation
             max_p_mw=gen['p_mw'],  # Maximum active power generation
-            min_q_mvar=-gen['p_mw']/0.9,  # Minimum reactive power generation (set as needed)
-            max_q_mvar=gen['p_mw']/0.9,  # Maximum reactive power generation (set as needed)
+            min_q_mvar=-gen['p_mw']/0.85,  # Minimum reactive power generation (set as needed)
+            max_q_mvar=gen['p_mw']/0.85,  # Maximum reactive power generation (set as needed)
             name=f"{gen['generator_name']} ({gen['type']})",
             slack=is_slack,  # Define if it's the slack bus
             controllable=True  # Set generator as controllable for OPF
@@ -330,32 +343,59 @@ net.gen['min_vm_pu'] = 0.98
 net.gen['max_vm_pu'] = 1.02
 
 
-def run_power_optimization_with_debug(net, max_iterations=5):
+
+def run_power_optimization_with_debug(net, max_iterations=5, voltage_threshold=0.97, reactive_gen_step=1.0, max_generators=1):
     for iteration in range(max_iterations):
         print(f"\n--- Iteration {iteration + 1} ---")
 
         try:
-
-            # Optimal Power Flow
+            # Exécuter l'Optimal Power Flow (OPF)
             print("Running Optimal Power Flow...")
             pp.runopp(net, delta=1e-6, debug=True, numba=True)
             print("Optimal Power Flow simulation succeeded.")
+            break
 
-            print("Optimization completed successfully.")
-            break  # If everything works, exit the loop
+            # # Vérification des tensions après optimisation
+            # low_voltage_buses = net.res_bus[net.res_bus.vm_pu < voltage_threshold].sort_values(by='vm_pu')
+            # if low_voltage_buses.empty:
+            #     print("All bus voltages are within acceptable limits.")
+            #     break  # Si tout est OK, on sort de la boucle
+            # else:
+            #     print(f"Low voltage detected at buses:\n{low_voltage_buses[['vm_pu']]}")
+            #     print(f"Adding reactive generators to the {max_generators} most critical buses...")
+
+            #     # Cibler les N bus les plus critiques
+            #     critical_buses = low_voltage_buses.head(max_generators)
+                
+            #     for bus_index in critical_buses.index:
+            #         if bus_index not in net.gen.bus.values:
+            #             print(f"Adding reactive generator at bus {bus_index} with {300} MVAr range.")
+            #             # pp.create_gen(net, 
+            #             #         bus=bus_index, 
+            #             #         p_mw=0,  # Pas de production active
+            #             #         vm_pu=1,  # Tension cible réaliste
+            #             #         min_q_mvar=-300,  # Plage de puissance réactive
+            #             #         max_q_mvar=300,
+            #             #         min_p_mw=0,  # Bornes actives pour éviter les comportements inattendus
+            #             #         max_p_mw=0,
+            #             #         controllable=True,  # Autoriser l'OPF à ajuster la réactivité
+            #             #         min_vm_pu=0.98,  # Limites de tension pour éviter les surcharges
+            #             #         max_vm_pu=1.02,
+            #             #         name=f"Reactive Generator at Bus {bus_index}")
+            #         else:
+            #             print(f"Reactive generator already exists at bus {bus_index}.")
 
         except (pp.LoadflowNotConverged, pp.optimal_powerflow.OPFNotConverged):
-            print("Simulation did not converge. Running diagnostics for corrections...")
-            diagnostic_report = pp.diagnostic(net, report_style='detailed')
-            print(diagnostic_report)
-            print("Corrections applied. Retrying simulation...")
+            pp.diagnostic(net, report_style='detailed')
+            print("Simulation did not converge.")
 
         except Exception as e:
             print(f"Unexpected error during simulation: {e}")
-            break  # Exit if an unexpected error occurs
+            break  # Sortie en cas d'erreur inattendue
 
     else:
         print("Max iterations reached. The optimization could not be completed.")
+
         
 isolated_buses = set(net.bus.index) - set(net.line[['from_bus', 'to_bus']].values.flatten())
 net.bus.drop(isolated_buses, inplace=True)
@@ -378,5 +418,15 @@ print(f"Generation: {total_generation} MW, Demand: {total_demand} MW")
 
 # Save the network to a pickle file
 pp.to_pickle(net, "my_network.p")
-
 print("Network saved as pickle file: my_network.p")
+
+# Vérification des contraintes de tension et de surcharge
+out_of_bounds = net.res_bus[(net.res_bus.vm_pu < 0.98) | (net.res_bus.vm_pu > 1.02)]
+overloaded_lines = net.res_line[net.res_line.loading_percent > 100].sort_values(by='loading_percent', ascending=False)
+overloaded_transformers = net.res_trafo[net.res_trafo.loading_percent > 100]
+
+print("Overloaded buses:\n", out_of_bounds[:5])
+print("Overloaded lines:\n", overloaded_lines[:5])
+print("Overloaded transformers:\n", overloaded_transformers[:5])
+
+low_voltage_buses = net.res_bus[net.res_bus.vm_pu < 0.95].sort_values(by='vm_pu')
