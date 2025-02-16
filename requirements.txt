@@ -11,3 +11,5 @@ folium
 streamlit-folium
 prophet
 datetime
+imageio
+streamlit-option-menu
