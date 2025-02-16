@@ -273,55 +273,72 @@ for _, load in loads_df.iterrows():
 
 # Ensure at least one Slack Bus is assigned
 slack_assigned = False
-
+# Création des générateurs en répartissant la génération si plusieurs bus sont proches (<500 m)
 for _, gen in generators_df.iterrows():
     try:
-        # Step 1: Connect generator to its specific bus
-        gen_bus = bus_index_map.get(gen['bus_id'])  # Get the mapped bus index
-        if gen_bus is None:
-            print(f"Warning: Bus {gen['bus_id']} not found for generator {gen['generator_name']}. Skipping.")
-            continue
-        
-        # Assign Slack Bus to the first natural gas generator
-        is_slack = False
-        if gen['type'] == 'natural gas' and not slack_assigned:
-            is_slack = True
-            slack_assigned = True
+        # Récupérer le bus de référence et sa position
+        ref_bus_id = gen['bus_id']
+        if ref_bus_id not in pos_bus:
+            print(f"Position non trouvée pour le bus {ref_bus_id} du générateur {gen['generator_name']}. Utilisation du bus original.")
+            ref_pos = None
+        else:
+            ref_pos = pos_bus[ref_bus_id]
 
-        # Create generator
-        pp.create_gen(
-            net,
-            bus=gen_bus,  # Link generator to the bus
-            p_mw=1000,  # Active power in MW
-            vm_pu=1.0,  # Voltage magnitude in per unit (typically 1.0)
-            min_p_mw=0,  # Minimum active power generation
-            max_p_mw=gen['p_mw'],  # Maximum active power generation
-            min_q_mvar=-gen['p_mw']/0.85,  # Minimum reactive power generation (set as needed)
-            max_q_mvar=gen['p_mw']/0.85,  # Maximum reactive power generation (set as needed)
-            name=f"{gen['generator_name']} ({gen['type']})",
-            slack=is_slack,  # Define if it's the slack bus
-            controllable=True  # Set generator as controllable for OPF
-        )
+        # Identifier tous les bus dans un rayon de 0.5 km autour du bus de référence
+        nearby_bus_ids = []
+        if ref_pos is not None:
+            for bus_id, pos in pos_bus.items():
+                distance = haversine(ref_pos[0], ref_pos[1], pos[0], pos[1])
+                if distance <= 1:  # 0.5 km = 500 m
+                    nearby_bus_ids.append(bus_id)
+        else:
+            nearby_bus_ids = [ref_bus_id]
 
-        # Optional Step 2: Add a transformer if generator voltage differs
-        # Uncomment this if the generator is connected via a transformer
-        # pp.create_transformer_from_parameters(
-        #     net,
-        #     hv_bus=gen_bus,  # High voltage bus
-        #     lv_bus=gen_bus,  # Low voltage bus (or a new low voltage bus if needed)
-        #     sn_mva=gen['p_mw'] / 0.9,  # Rated power in MVA (90% efficiency assumption)
-        #     vn_hv_kv=net.bus.loc[gen_bus, 'vn_kv'],  # High voltage nominal voltage
-        #     vn_lv_kv=20,  # Low voltage nominal voltage
-        #     vkr_percent=0.2,  # Resistive losses (%)
-        #     vk_percent=12.0,  # Short-circuit impedance (%)
-        #     pfe_kw=50,  # Iron losses (kW)
-        #     i0_percent=0.1,  # No-load current (%)
-        #     name="20 kV Transformer"
-        # )
-
+        # Si plusieurs bus sont trouvés, répartir la génération
+        if len(nearby_bus_ids) > 1:
+            generation_share = gen['p_mw'] / len(nearby_bus_ids)
+            print(f"Répartition du générateur '{gen['generator_name']}' sur les bus {nearby_bus_ids} avec {generation_share} MW chacun.")
+            for bus in nearby_bus_ids:
+                bus_index = bus_index_map[bus]
+                pp.create_gen(
+                    net,
+                    bus=bus_index,
+                    p_mw=1,  # Puissance active initiale (peut être ajustée)
+                    vm_pu=1.0,
+                    min_p_mw=0,
+                    max_p_mw=generation_share,
+                    min_q_mvar=-generation_share / 0.85,
+                    max_q_mvar=generation_share / 0.85,
+                    name=f"{gen['generator_name']} ({gen['type']}) - Part sur bus {bus}",
+                    slack=(not slack_assigned and gen['type'] == 'natural gas'),
+                    controllable=True
+                )
+                # Assigner le slack au premier générateur éligible
+                if not slack_assigned and gen['type'] == 'natural gas':
+                    slack_assigned = True
+        else:
+            # Aucun bus supplémentaire trouvé, on utilise le bus de référence (ou le plus proche)
+            bus = nearby_bus_ids[0]
+            bus_index = bus_index_map[bus]
+            print(f"Création du générateur '{gen['generator_name']}' sur le bus {bus}.")
+            pp.create_gen(
+                net,
+                bus=bus_index,
+                p_mw=1,  # Puissance active initiale
+                vm_pu=1.0,
+                min_p_mw=0,
+                max_p_mw=gen['p_mw'],
+                min_q_mvar=-gen['p_mw'] / 0.85,
+                max_q_mvar=gen['p_mw'] / 0.85,
+                name=f"{gen['generator_name']} ({gen['type']})",
+                slack=(not slack_assigned and gen['type'] == 'natural gas'),
+                controllable=True
+            )
+            if not slack_assigned and gen['type'] == 'natural gas':
+                slack_assigned = True
 
     except Exception as e:
-        print(f"Error creating generator and connection for: {gen['generator_name']}")
+        print(f"Erreur lors de la création du générateur {gen['generator_name']}: {e}")
         raise e
 
 
@@ -405,8 +422,8 @@ for component in ['line', 'trafo', 'gen', 'load']:
 
 
 run_power_optimization_with_debug(net)
-fig = simple_plotly(net)
-plt.show()
+# fig = simple_plotly(net)
+# plt.show()
 
 # Display generator settings after OPF
 print("Generator settings after OPF:")
@@ -425,8 +442,8 @@ out_of_bounds = net.res_bus[(net.res_bus.vm_pu < 0.98) | (net.res_bus.vm_pu > 1.
 overloaded_lines = net.res_line[net.res_line.loading_percent > 100].sort_values(by='loading_percent', ascending=False)
 overloaded_transformers = net.res_trafo[net.res_trafo.loading_percent > 100]
 
-print("Overloaded buses:\n", out_of_bounds[:5])
-print("Overloaded lines:\n", overloaded_lines[:5])
-print("Overloaded transformers:\n", overloaded_transformers[:5])
+# print("Overloaded buses:\n", out_of_bounds[:5])
+# print("Overloaded lines:\n", overloaded_lines[:5])
+# print("Overloaded transformers:\n", overloaded_transformers[:5])
 
 low_voltage_buses = net.res_bus[net.res_bus.vm_pu < 0.95].sort_values(by='vm_pu')
