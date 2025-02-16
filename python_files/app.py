@@ -336,14 +336,14 @@ if view == "Filtered Data Visualization":
                 low_voltage_buses = intersecting_buses[intersecting_buses['vn_kv'] == min_voltage]
 
                 # Calculate the load per bus
-                estimated_max_load = (area['POP2010'] / total_population) * max_estimated_consumption  # MW
+                estimated_max_load = (area['POP2010'] / total_population) #* max_estimated_consumption  # MW
                 load_per_bus = (estimated_max_load * 1000) / len(low_voltage_buses)  # kW per bus
 
                 # Distribute the load across the low voltage buses
                 for _, bus in low_voltage_buses.iterrows():
                     loads.append({
                         "bus": bus['bus_id'],
-                        "p_kw": load_per_bus,
+                        "p_kw": area['POP2010'] / total_population,  # percentage of the total load of georgia
                         "type": "urban",
                         "name": f"{area['NAME']} (Bus {bus['bus_id']})"
                     })
@@ -359,7 +359,7 @@ if view == "Filtered Data Visualization":
                 estimated_max_load = (area['POP2010'] / total_population) * max_estimated_consumption  # MW
                 loads.append({
                     "bus": nearest_bus['bus_id'],
-                    "p_kw": estimated_max_load * 1000,  # Convert MW to kW
+                    "p_kw": area['POP2010'] / total_population,  # Convert MW to kW
                     "type": "urban",
                     "name": f"{area['NAME']} (Nearest Bus {nearest_bus['bus_id']})"
                 })
