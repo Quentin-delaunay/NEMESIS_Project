@@ -435,9 +435,14 @@ with col_right:
                         current_type = "other"
                     if current_type == selected_gen_type:
                         # Update minimum production: new_min = (new_util_pct/100)*max_p_mw
-                        new_min_val = (new_util_pct/100.0) * net.gen.at[idx, "max_p_mw"]
+                        new_min_val = (new_util_pct / 100.0) * net.gen.at[idx, "max_p_mw"]
                         net.gen.at[idx, "min_p_mw"] = new_min_val
-                        # Update marginal cost (create a new poly cost)
+
+                        # Remove existing cost entry for this generator (if any) to avoid duplicates.
+                        if hasattr(net, "poly_cost") and not net.poly_cost.empty:
+                            net.poly_cost = net.poly_cost[~((net.poly_cost.element == idx) & (net.poly_cost.et == "gen"))]
+
+                        # Create a new cost entry
                         pp.create_poly_cost(
                             net,
                             element=idx,
@@ -457,17 +462,33 @@ with col_right:
 
 
 
+
 st.sidebar.subheader("Save Modified Network")
 network_name = st.sidebar.text_input("Enter network name", value="modified_network")
 if st.sidebar.button("Save Network", key="save_network"):
-    # Créer le dossier s'il n'existe pas
+    # Create the folder if it doesn't exist
     save_folder = "Main_app/modified_network/"
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
-    filename = os.path.join(save_folder, f"{network_name}.pkl")
+    
+    # Define the pickle filename
+    filename_pickle = os.path.join(save_folder, f"{network_name}.pkl")
     try:
-        with open(filename, "wb") as f:
+        with open(filename_pickle, "wb") as f:
             pickle.dump(net, f)
-        st.sidebar.success(f"Network saved as {filename}")
+        st.sidebar.success(f"Network saved as {filename_pickle}")
     except Exception as e:
         st.sidebar.error(f"Error saving network: {e}")
+    
+    # Create a text file with all loads and their types (Fractional or Fixed)
+    filename_txt = os.path.join(save_folder, f"{network_name}.txt")
+    try:
+        with open(filename_txt, "w") as f:
+            for idx in net.load.index:
+                # Ensure the "fraction" column exists; if missing, assume True
+                frac = net.load.at[idx, "fraction"] if "fraction" in net.load.columns else True
+                load_type = "Fractional" if frac else "Fixed"
+                f.write(f"Load {idx}: {load_type}\n")
+        st.sidebar.success(f"Load info saved as {filename_txt}")
+    except Exception as e:
+        st.sidebar.error(f"Error saving load info: {e}")

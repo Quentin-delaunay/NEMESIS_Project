@@ -11,6 +11,17 @@ from plotly.subplots import make_subplots
 from pandapower.topology import create_nxgraph
 from utils import load_network
 import copy  # Pour réaliser une copie profonde du réseau
+import re
+import pickle
+
+# Load the reference (original) network from file
+original_network = pp.from_pickle("Main_app/original_network.p")
+
+# Initialize session state keys
+if "sim_history" not in st.session_state:
+    st.session_state["sim_history"] = []
+if "error_log" not in st.session_state:
+    st.session_state["error_log"] = []
 
 st.set_page_config(page_title="Simulation & Network Visualization", layout="wide")
 st.title("Simulation & Network Visualization")
@@ -42,6 +53,28 @@ if "net" in st.session_state:
 
 
 
+# Determine the base name from the uploaded file name or a user input (if you want to choose it)
+if "net" in st.session_state:
+    # For example, use the base name of the uploaded file (without extension)
+    uploaded_name = os.path.splitext(uploaded_file.name)[0]
+    txt_filepath = os.path.join(r"Main_app\modified_network", f"{uploaded_name}.txt")
+    if os.path.exists(txt_filepath):
+        st.sidebar.info(f"Loading load type info from {txt_filepath}...")
+        with open(txt_filepath, "r") as f:
+            for line in f:
+                # Expect lines of the form: "Load 44: Fractional" or "Load 44: Fixed"
+                m = re.match(r"Load\s+(\d+):\s*(\w+)", line)
+                if m:
+                    load_idx = int(m.group(1))
+                    load_type = m.group(2).strip().lower()
+                    # Update the network's load table if the load exists
+                    if load_idx in net.load.index:
+                        net.load.at[load_idx, "fraction"] = True if load_type == "fractional" else False
+        st.sidebar.success("Load type info loaded successfully!")
+    else:
+        st.sidebar.warning(f"No load info file found at {txt_filepath}. All loads remain as set.")
+
+
 forecast_csv_path = "Main_app/saved_forecast/load_forecast.csv"
 try:
     forecast_csv = pd.read_csv(forecast_csv_path)
@@ -50,16 +83,52 @@ except Exception as e:
     st.error(f"Error loading forecast CSV file: {e}")
     st.stop()
 
+
+# Run initial OPF if simulation history is empty
+if "net" in st.session_state and len(st.session_state["sim_history"]) == 0:
+    try:
+        pp.runopp(net)
+        # Create a deep copy (snapshot) of the network after OPF
+        net_snapshot = copy.deepcopy(net)
+        # Collect simulation metrics
+        total_demand = net.load["p_mw"].sum()
+        if hasattr(net, "res_gen") and not net.res_gen.empty:
+            total_generation = net.res_gen["p_mw"].sum()
+            gen_distribution = net.res_gen["p_mw"].to_dict()
+            gen_names = net.gen["name"].to_dict()
+        else:
+            total_generation = 0
+            gen_distribution = {}
+            gen_names = {}
+        if hasattr(net, "res_line") and not net.res_line.empty:
+            avg_line_loading = net.res_line["loading_percent"].mean()
+        else:
+            avg_line_loading = 0
+        avg_bus_load = net.load["p_mw"].mean() if not net.load.empty else 0
+
+        # Use the forecast CSV's first timestamp if available, else current time
+        init_time = forecast_csv.iloc[0]["ds"] if not forecast_csv.empty else pd.Timestamp.now()
+
+        sim_state = {
+            "time": init_time,
+            "demand": total_demand,
+            "generation": total_generation,
+            "gen_distribution": gen_distribution,
+            "gen_names": gen_names,
+            "avg_line_loading": avg_line_loading,
+            "avg_bus_load": avg_bus_load,
+            "net_snapshot": net_snapshot,
+        }
+        st.session_state["sim_history"].append(sim_state)
+        st.sidebar.success("Initial OPF run completed and simulation snapshot recorded.")
+    except Exception as e:
+        st.sidebar.error(f"Error running initial OPF: {e}")
+
 # Sauvegarder les proportions de charge initiales si non déjà stockées
 if "original_loads" not in st.session_state:
     st.session_state["original_loads"] = net.load["p_mw"].to_dict()
 original_loads = st.session_state["original_loads"]
 
-# Initialiser l'historique de simulation et le journal d'erreurs s'ils ne sont pas présents
-if "sim_history" not in st.session_state:
-    st.session_state["sim_history"] = []
-if "error_log" not in st.session_state:
-    st.session_state["error_log"] = []
 
 # --- Simulation Controls in Sidebar ---
 st.sidebar.subheader("Simulation Controls")
@@ -72,9 +141,6 @@ if reset_btn:
     st.session_state["sim_history"] = []
     st.session_state["error_log"] = []
     st.sidebar.success("Simulation reset successfully.")
-    
-    
-    
     
     
 
@@ -173,6 +239,46 @@ if st.session_state["sim_history"]:
     
 else:
     st.info("No simulation data available yet. Please advance the simulation.")
+    
+    
+import pickle
+# In the sidebar, let the user enter a base filename (prefix)
+sim_prefix = st.sidebar.text_input("Enter simulation file name", value="simulation")
+
+if st.sidebar.button("Save Entire Simulation", key="save_full_sim"):
+    # Create a folder for saving simulations if it doesn't exist
+    save_folder = "Main_app/simulations/" + sim_prefix
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+        
+    sim_history = st.session_state.get("sim_history", [])
+    if not sim_history:
+        st.sidebar.error("No simulation data available to save.")
+    else:
+        # Save each timestep's network snapshot with a filename based on the prefix and timestep number.
+        for i, step in enumerate(sim_history, start=1):
+            # We assume that each simulation state contains the network snapshot in "net_snapshot"
+            net_snapshot = step.get("net_snapshot", None)
+            if net_snapshot is not None:
+                filename = os.path.join(save_folder, f"{sim_prefix}_timestep_{i}.pkl")
+                try:
+                    with open(filename, "wb") as f:
+                        pickle.dump(net_snapshot, f)
+                    #st.sidebar.write(f"Saved: {filename}")
+                except Exception as e:
+                    st.sidebar.error(f"Error saving timestep {i}: {e}")
+            else:
+                st.sidebar.warning(f"No network snapshot for timestep {i}.")
+        st.sidebar.success("Simulation saved successfully!")
+
+
+filename_ts = st.sidebar.text_input("Enter filename for selected timestep", value="selected_timestep.pkl", key="ts_filename")
+if st.sidebar.button("Save Selected Timestep", key="save_ts"):
+    selected_data = st.session_state["sim_history"][selected_step - 1]
+    with open(os.path.join(r"Main_app\simulations\individual_timesteps", filename_ts), "wb") as f:
+        pickle.dump(selected_data, f)
+    st.sidebar.success("Selected timestep saved successfully!")
+
 
 ###############################################################################
 # Network Visualization Section
@@ -350,23 +456,28 @@ current_step = len(st.session_state["sim_history"])
 total_steps = len(forecast_csv)
 
 
-current_state = history[-1]
-total_gen = current_state["generation"]
-if total_gen > 0:
-    gen_dist = current_state["gen_distribution"]
-    gen_names = current_state["gen_names"]
+if "sim_history" in st.session_state and st.session_state["sim_history"]:
+    # Use the first simulation step instead of the last one
+    current_state = st.session_state["sim_history"][0]
+    total_gen = current_state["generation"]
+    if total_gen > 0:
+        gen_dist = current_state["gen_distribution"]
+        gen_names = current_state["gen_names"]
+    else:
+        gen_dist = {}
+        gen_names = {}
+    if gen_dist:
+        # Replace generator IDs with their names
+        labels = [gen_names[gen_id] for gen_id in gen_dist.keys()]
+        values = list(gen_dist.values())
+        fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.3)])
+        fig_pie.update_layout(title="Generation Distribution by Generator")
+        st.plotly_chart(fig_pie, use_container_width=True, key="pie_chart")
+    else:
+        st.info("No generation data available for the first timestep.")
 else:
-    gen_dist = {}
-    gen_names = {}
-if gen_dist:
-    # Remplacer les IDs par les noms
-    labels = [gen_names[gen_id] for gen_id in gen_dist.keys()]
-    values = list(gen_dist.values())
-    fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.3)])
-    fig_pie.update_layout(title="Generation Distribution by Generator")
-    st.plotly_chart(fig_pie, use_container_width=True, key="pie_chart")
-else:
-    st.info("No generation data available for the current timestep.")
+    st.info("No simulation data available yet.")
+
 
 
 # Display error messages at the bottom.
