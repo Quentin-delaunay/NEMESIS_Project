@@ -13,3 +13,12 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
+
+if st.button('Small Modular Reactors'):
+    st.write('Button 1 clicked')
+
+if st.button('Cyber Attack'):
+    st.write('Button 2 clicked')
+
+if st.button('Fossil Fuel Outage'):
+    st.write('Button 3 clicked')
