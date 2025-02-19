@@ -15,6 +15,7 @@ import math
 from streamlit_folium import folium_static, st_folium
 from utils import create_network_from_filtered_data
 import networkx as nx
+import pandapower as pp
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
@@ -110,11 +111,11 @@ installed_power = sum(
 
 
 # Display updated metrics
-col2.header("Metrics")
-col2.metric(label="Installed Power (MW)", value=f"{installed_power:.2f}")
-col2.metric(label="Total Population", value=f"{total_population:,}")
-col2.metric(label="Max Population", value=f"{MAX_POP:,}")
-col2.metric(label="Max Estimated Power Consumption (MW)", value=f"{max_estimated_consumption:.2f}")
+#col2.header("Metrics")
+#col2.metric(label="Installed Power (MW)", value=f"{installed_power:.2f}")
+#col2.metric(label="Total Population", value=f"{total_population:,}")
+#col2.metric(label="Max Population", value=f"{MAX_POP:,}")
+#col2.metric(label="Max Estimated Power Consumption (MW)", value=f"{max_estimated_consumption:.2f}")
 
 
 # Extract substations and create edges
@@ -125,6 +126,11 @@ for _, line in power_lines.iterrows():
     substations.append(Point(coords[-1]))
 substations_gdf = gpd.GeoDataFrame(geometry=substations, crs=power_lines.crs)
 substations_gdf = substations_gdf.drop_duplicates(subset=['geometry'], keep='first').reset_index(drop=True)
+
+# Create Folium map with larger dimensions
+m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
+# Create a NetworkX graph and add nodes with positions
+G = nx.Graph()
 
 edges = []
 for _, line in power_lines.iterrows():
@@ -174,8 +180,8 @@ for _, line in power_lines.iterrows():
             nearest_substation = substations_gdf.distance(area_point).idxmin()
             extended_edges.append((area_id, nearest_substation, "urban"))
 
-    # Create Folium map with larger dimensions
-    m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
+    # # Create Folium map with larger dimensions
+    # m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
 
 
 
@@ -284,11 +290,11 @@ for _, line in power_lines.iterrows():
     legend._template = Template(legend_html)
     m.get_root().add_child(legend)
 
-    # Display Folium map
-    folium_static(m, width=1000, height= 1000)
+    # # Display Folium map
+    # folium_static(m, width=1000, height= 1000)
 
-    # Create a NetworkX graph and add nodes with positions
-    G = nx.Graph()
+    # # Create a NetworkX graph and add nodes with positions
+    # G = nx.Graph()
 
     # Add substations with positions
     for idx, substation in substations_gdf.iterrows():
@@ -311,18 +317,21 @@ for _, line in power_lines.iterrows():
     for edge in extended_edges:
         G.add_edge(edge[0], edge[1], type=edge[2])
 
-    if st.button("Save Extended Graph"):
-        output_folder = "output/"
-        os.makedirs(output_folder, exist_ok=True)
+    # if st.button("Save Extended Graph"):
+    #     output_folder = "output/"
+    #     os.makedirs(output_folder, exist_ok=True)
 
-        # Convert 'pos' attribute to a string "x,y" for compatibility with GEXF
-        for node, data in G.nodes(data=True):
-            if "pos" in data and isinstance(data["pos"], tuple):
-                data["pos"] = f"{data['pos'][0]},{data['pos'][1]}"
+    #     # Convert 'pos' attribute to a string "x,y" for compatibility with GEXF
+    #     for node, data in G.nodes(data=True):
+    #         if "pos" in data and isinstance(data["pos"], tuple):
+    #             data["pos"] = f"{data['pos'][0]},{data['pos'][1]}"
 
-        # Save graph in GEXF format
-        nx.write_gexf(G, f"{output_folder}graph.gexf", encoding="utf-8", prettyprint=True)
-        st.success("Graph saved successfully!")
+    #     # Save graph in GEXF format
+    #     nx.write_gexf(G, f"{output_folder}graph.gexf", encoding="utf-8", prettyprint=True)
+    #     st.success("Graph saved successfully!")
+
+# Display Folium map
+folium_static(m, width=1000, height= 1000)
 
 if "net" in st.session_state:
     net = st.session_state["net"]
