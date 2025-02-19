@@ -16,6 +16,8 @@ from streamlit_folium import folium_static, st_folium
 from utils import create_network_from_filtered_data
 import networkx as nx
 
+st.set_page_config(page_title="War-Gaming", layout="wide")
+st.title("War-Gaming")
 
 source_colors = {
     'nuclear': ('blue', 'o'),
@@ -40,7 +42,7 @@ def haversine(lon1, lat1, lon2, lat2):
     return R * c
 
 
-# Sidebar parameters
+# Georgia filter parameters
 
 filter_pop = 100000 # only looking at most populated region
 max_peak_power = 12431  # Maximum power peak ever recorded in Georgia
@@ -133,9 +135,6 @@ for _, line in power_lines.iterrows():
     end_substation = substations_gdf.distance(end_point).idxmin()
     if start_substation != end_substation:
         edges.append((start_substation, end_substation, line['VOLTAGE']))
-
-st.set_page_config(page_title="War-Gaming", layout="wide")
-st.title("War-Gaming")
     # Extend the graph with generators and urban areas
     extended_edges = edges.copy()
 
@@ -325,6 +324,9 @@ st.title("War-Gaming")
         nx.write_gexf(G, f"{output_folder}graph.gexf", encoding="utf-8", prettyprint=True)
         st.success("Graph saved successfully!")
 
+if "net" in st.session_state:
+    net = st.session_state["net"]
+    
 
 # Button to create and save the Pandapower network from filtered data
 if st.button("Create Pandapower Network from Filtered Data"):
@@ -342,6 +344,20 @@ def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
 
 def cyber_attack_effect():
+    gen_ids = net.gen.index.tolist()
+    if gen_ids:
+        def format_gen(gen_id):
+            return f"{gen_id}: {net.gen.at[gen_id, 'Total MW']} "
+        selected_gen = st.selectbox("Cyber Attack", gen_ids, format_func=format_gen, key="delete_gen")
+        if st.button("Delete Generator", key="del_gen"):
+            try:
+                pp.drop_elements_simple(net, "gen", selected_gen)
+                st.success(f"Generator {selected_gen} has been deleted.")
+            except Exception as e:
+                st.error(f"Error deleting generator {selected_gen}: {e}")
+    else:
+        st.info("No generators available in the network.")
+            
     st.write('Effect for Cyber Attack')
 
 def fossil_fuel_outage_effect():
