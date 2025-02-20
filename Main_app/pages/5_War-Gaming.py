@@ -111,11 +111,6 @@ installed_power = sum(
 
 
 # Display updated metrics
-#col2.header("Metrics")
-#col2.metric(label="Installed Power (MW)", value=f"{installed_power:.2f}")
-#col2.metric(label="Total Population", value=f"{total_population:,}")
-#col2.metric(label="Max Population", value=f"{MAX_POP:,}")
-#col2.metric(label="Max Estimated Power Consumption (MW)", value=f"{max_estimated_consumption:.2f}")
 
 
 # Extract substations and create edges
@@ -126,11 +121,6 @@ for _, line in power_lines.iterrows():
     substations.append(Point(coords[-1]))
 substations_gdf = gpd.GeoDataFrame(geometry=substations, crs=power_lines.crs)
 substations_gdf = substations_gdf.drop_duplicates(subset=['geometry'], keep='first').reset_index(drop=True)
-
-# Create Folium map with larger dimensions
-m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
-# Create a NetworkX graph and add nodes with positions
-G = nx.Graph()
 
 edges = []
 for _, line in power_lines.iterrows():
@@ -180,8 +170,8 @@ for _, line in power_lines.iterrows():
             nearest_substation = substations_gdf.distance(area_point).idxmin()
             extended_edges.append((area_id, nearest_substation, "urban"))
 
-    # # Create Folium map with larger dimensions
-    # m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
+    # Create Folium map with larger dimensions
+    m = folium.Map(location=[32.8407, -83.6324], zoom_start=7, width='100%', height='750px')
 
 
 
@@ -290,11 +280,11 @@ for _, line in power_lines.iterrows():
     legend._template = Template(legend_html)
     m.get_root().add_child(legend)
 
-    # # Display Folium map
-    # folium_static(m, width=1000, height= 1000)
+    # Display Folium map
+    folium_static(m, width=1000, height= 1000)
 
-    # # Create a NetworkX graph and add nodes with positions
-    # G = nx.Graph()
+    # Create a NetworkX graph and add nodes with positions
+    G = nx.Graph()
 
     # Add substations with positions
     for idx, substation in substations_gdf.iterrows():
@@ -317,21 +307,18 @@ for _, line in power_lines.iterrows():
     for edge in extended_edges:
         G.add_edge(edge[0], edge[1], type=edge[2])
 
-    # if st.button("Save Extended Graph"):
-    #     output_folder = "output/"
-    #     os.makedirs(output_folder, exist_ok=True)
+    if st.button("Save Extended Graph"):
+        output_folder = "output/"
+        os.makedirs(output_folder, exist_ok=True)
 
-    #     # Convert 'pos' attribute to a string "x,y" for compatibility with GEXF
-    #     for node, data in G.nodes(data=True):
-    #         if "pos" in data and isinstance(data["pos"], tuple):
-    #             data["pos"] = f"{data['pos'][0]},{data['pos'][1]}"
+        # Convert 'pos' attribute to a string "x,y" for compatibility with GEXF
+        for node, data in G.nodes(data=True):
+            if "pos" in data and isinstance(data["pos"], tuple):
+                data["pos"] = f"{data['pos'][0]},{data['pos'][1]}"
 
-    #     # Save graph in GEXF format
-    #     nx.write_gexf(G, f"{output_folder}graph.gexf", encoding="utf-8", prettyprint=True)
-    #     st.success("Graph saved successfully!")
-
-# Display Folium map
-folium_static(m, width=1000, height= 1000)
+        # Save graph in GEXF format
+        nx.write_gexf(G, f"{output_folder}graph.gexf", encoding="utf-8", prettyprint=True)
+        st.success("Graph saved successfully!")
 
 if "net" in st.session_state:
     net = st.session_state["net"]
@@ -353,20 +340,20 @@ def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
 
 def cyber_attack_effect():
-    gen_ids = net.gen.index.tolist()
-    if gen_ids:
-        def format_gen(gen_id):
-            return f"{gen_id}: {net.gen.at[gen_id, 'Total MW']} "
-        selected_gen = st.selectbox("Cyber Attack", gen_ids, format_func=format_gen, key="delete_gen")
-        if st.button("Delete Generator", key="del_gen"):
-            try:
-                pp.drop_elements_simple(net, "gen", selected_gen)
-                st.success(f"Generator {selected_gen} has been deleted.")
-            except Exception as e:
-                st.error(f"Error deleting generator {selected_gen}: {e}")
-    else:
-        st.info("No generators available in the network.")
-            
+    power_plants_path = r'data/Power_Plants_georgia.geojson'
+    power_plants = gpd.read_file(power_plants_path)
+    # Function to set a random top 5 plant's production to 0
+    # Sort plants by Total_MW and select the top 5
+    top5_plants = power_plants.nlargest(5, 'Total_MW')
+    
+    # Randomly select one of the top 5 plants
+    selected_plant = top5_plants.sample(1).iloc[0]
+    
+    # Set the selected plant's production to 0
+    power_plants.loc[power_plants['Plant_Name'] == selected_plant['Plant_Name'], 'Total_MW'] = 0
+    
+    st.write(f"{selected_plant['Plant_Name']} taken offline")
+   
     st.write('Effect for Cyber Attack')
 
 def fossil_fuel_outage_effect():
