@@ -241,6 +241,30 @@ def create_baseline_map():
     col3.metric("Min Population", f"{BASELINE['MIN_POPULATION']:,}")
     col4.metric("Min Voltage", f"{BASELINE['MIN_VOLTAGE']} kV")
 
+    # Create a Folium map centered on Georgia with no background tiles
+    m = folium.Map(location=[32.1656, -82.9001], zoom_start=7, tiles=None)
+
+    # Add the transmission lines with loading percentages to the Folium map
+    for _, line in power_lines.iterrows():
+        coords = list(line['geometry'].coords)
+        loading = line['loading_percent'] if 'loading_percent' in line else 0
+        color = cm.Blues(loading / 100)
+        folium.PolyLine(
+            locations=[(coords[0][1], coords[0][0]), (coords[-1][1], coords[-1][0])],
+            color=mcolors.to_hex(color),
+            weight=5,
+            opacity=0.7,
+            tooltip=f"Loading: {loading:.1f}%"
+        ).add_to(m)
+
+    return fig_baseline, m
+
+# Create the baseline map and heatmap
+fig_baseline, folium_map = create_baseline_map()
+
+#display heatmap
+col1 = st.columns(1)
+col1 = folium_static(folium_map)
 
 # Button to create and save the Pandapower network from filtered data
 if st.button("Create Pandapower Network from Filtered Data"):
@@ -273,18 +297,17 @@ def fossil_fuel_outage_effect():
     power_plants_path = r'data/Power_Plants_georgia.geojson'
     power_plants = gpd.read_file(power_plants_path)
     
-    # List of fossil fuel sources and their domestic production percentages
-    fossil_fuel_sources = {
-        'coal': 0.90,        # 90% of coal is domestic
-        'petroleum': 0.34,   # 34% of petroleum is domestic
-        'natural gas': 0.95  # 95% of natural gas is domestic
-    }
+    # List of fossil fuel sources
+    #34% of petroleum is domestic
+    #95% of natural gas is domestic
+    #90% of coal is domestic
+    fossil_fuel_sources = ['coal', 'petroleum', 'natural gas']
     
-    # Set the production of all fossil fuel plants to match their respective domestic production percentages
-    for source, domestic_percentage in fossil_fuel_sources.items():
-        power_plants.loc[power_plants['PrimSource'] == source, 'Total_MW'] *= domestic_percentage
+    # Set the production of all fossil fuel plants to half of their original Total_MW
+    for source in fossil_fuel_sources:
+        power_plants.loc[power_plants['PrimSource'] == source, 'Total_MW'] /= 2
     
-    st.write('Production of all coal, petroleum, and natural gas plants adjusted to match their respective domestic production percentages')
+    st.write('Production of all coal, petroleum, and natural gas plants set to half of their original Total_MW')
     st.write(power_plants[['Plant_Name', 'PrimSource', 'Total_MW']])
     st.write('Effect for Fossil Fuel Shortage')
 
