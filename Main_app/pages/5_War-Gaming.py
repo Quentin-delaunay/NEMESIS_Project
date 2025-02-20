@@ -9,22 +9,25 @@ import pandas as pd
 import networkx as nx
 import matplotlib.lines as mlines
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import HeatMap
 from shapely.geometry import Point, LineString
 import math
 from streamlit_folium import folium_static, st_folium
 from utils import create_network_from_filtered_data
 import networkx as nx
 import pandapower as pp
+import plotly.graph_objects as go
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
 
 BASELINE = {
-    'MIN_POPULATION': 100000, #This makes the filter take look at all the urban areas
+    'MIN_POPULATION': 50000, #This makes the filter take look at all the urban areas
     'MAX_POWER_PEAK': 15636, # MW Georgia Power IRP prediction for 2024
     'POWER_INSTALLED': 37786, # MW Generated in Georgia in total
-    'MIN_VOLTAGE': 230 # looks at all lines
+    'MIN_VOLTAGE': 250# looks at only major transmission lines
 }
 electricity_imports= 2806.17899 #MW/hr or 24,582,128 MW a year
 electricity_exports = 0 #MW/hr or 0MW a year
@@ -46,7 +49,7 @@ source_colors = {
 def haversine(lon1, lat1, lon2, lat2):
     R = 6371  # Earth radius in kilometers
     dlon = math.radians(lon2 - lon1)
-    dlat = math.radians(lat2 - lat1)
+    dlat = math.radians(lon2 - lat1)
     a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
@@ -120,7 +123,6 @@ def create_baseline_map():
         sum(plant['Install_MW'] for plant in plants)
         for plants in filtered_power_plants.values()
     )
-
 
     # Extract substations and create edges
     substations = []
@@ -239,8 +241,30 @@ def create_baseline_map():
     col3.metric("Min Population", f"{BASELINE['MIN_POPULATION']:,}")
     col4.metric("Min Voltage", f"{BASELINE['MIN_VOLTAGE']} kV")
 
-# Create the baseline map
-create_baseline_map()
+    # Create a Folium map centered on Georgia with no background tiles
+    m = folium.Map(location=[32.1656, -82.9001], zoom_start=7, tiles=None)
+
+    # Add the transmission lines with loading percentages to the Folium map
+    for _, line in power_lines.iterrows():
+        coords = list(line['geometry'].coords)
+        loading = line['loading_percent'] if 'loading_percent' in line else 0
+        color = cm.Blues(loading / 100)
+        folium.PolyLine(
+            locations=[(coords[0][1], coords[0][0]), (coords[-1][1], coords[-1][0])],
+            color=mcolors.to_hex(color),
+            weight=5,
+            opacity=0.7,
+            tooltip=f"Loading: {loading:.1f}%"
+        ).add_to(m)
+
+    return fig_baseline, m
+
+# Create the baseline map and heatmap
+fig_baseline, folium_map = create_baseline_map()
+
+#display heatmap
+col1 = st.columns(1)
+col1 = folium_static(folium_map)
 
 # Button to create and save the Pandapower network from filtered data
 if st.button("Create Pandapower Network from Filtered Data"):
@@ -274,6 +298,9 @@ def fossil_fuel_outage_effect():
     power_plants = gpd.read_file(power_plants_path)
     
     # List of fossil fuel sources
+    #34% of petroleum is domestic
+    #95% of natural gas is domestic
+    #90% of coal is domestic
     fossil_fuel_sources = ['coal', 'petroleum', 'natural gas']
     
     # Set the production of all fossil fuel plants to half of their original Total_MW
