@@ -357,7 +357,19 @@ def cyber_attack_effect():
     st.write('Effect for Cyber Attack')
 
 def fossil_fuel_outage_effect():
-    st.write('Effect for Fossil Fuel Outage')
+        power_plants_path = r'data/Power_Plants_georgia.geojson'
+        power_plants = gpd.read_file(power_plants_path)
+    
+    # List of fossil fuel sources
+        fossil_fuel_sources = ['coal', 'petroleum', 'natural gas']
+    
+    # Set the production of all fossil fuel plants to half of their original Total_MW
+        for source in fossil_fuel_sources:
+            power_plants.loc[power_plants['PrimSource'] == source, 'Total_MW'] /= 2
+    
+        st.write('Production of all coal, petroleum, and natural gas plants set to half of their original Total_MW')
+        st.write(power_plants[['Plant_Name', 'PrimSource', 'Total_MW']])
+        st.write('Effect for Fossil Fuel Shortage')
 
 if st.button('Small Modular Reactors'):
     small_modular_reactors_effect()
@@ -365,5 +377,5 @@ if st.button('Small Modular Reactors'):
 if st.button('Cyber Attack'):
     cyber_attack_effect()
 
-if st.button('Fossil Fuel Outage'):
+if st.button('Fossil Fuel Shortage'):
     fossil_fuel_outage_effect()
