@@ -14,11 +14,30 @@ import pandapower as pp
 import plotly.graph_objects as go
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-# Import military bases data
-from data.Military_bases import military_bases
+from pandapower.topology import create_nxgraph
+
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
+
+military_bases = [
+    {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056,'type':'Air Force Base'},
+    {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667,'type':'Air Force Base'},
+    {"name": "Dobbins Air Reserve Base", "latitude": 33.915278, "longitude": -84.516389,'type':'Air Force Base'},
+    {"name": "Fort Benning Army Base", "latitude": 32.366111, "longitude": -84.969167,'type':'Army Base'},
+    {"name": "Fort Gillem", "latitude": 33.6202, "longitude": -84.3289,'type':'Army Base'},
+    {"name": "Fort Gordon", "latitude": 33.413333, "longitude": -82.135278,'type':'Army Base'},
+    {"name": "Fort McPherson", "latitude": 33.706206, "longitude": -84.433279,'type':'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075,'type':'Army Base'},
+    {"name": "Hunter Army Airfield", "latitude": 32.01, "longitude": -81.145556,'type':'Army Base'},
+    {"name": "Marine Corps Logistics Base Albany", "latitude": 31.55, "longitude": -84.054167,'type':'Marine Base'},
+    {"name": "Naval Submarine Base Kings Bay", "latitude": 30.781667, "longitude": -81.535,'type':'Navy Base'},
+    {"name": "Fort Eisenhower", "latitude": 33.413333, "longitude": -82.135278,'type':'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075,'type':'Army Base'},
+    {"name": "Camp Frank D Merrill", "latitude": 34.628293, "longitude": -84.103033,'type':'Army Base'},
+    {"name": "General Lucius D. Clay National Guard Center", "latitude": 33.915278, "longitude": -84.516389,'type':'National Guard Base'},
+    ]
+
 
 BASELINE = {
     'MIN_POPULATION': 50000, #This makes the filter take look at all the urban areas
@@ -91,7 +110,7 @@ def create_baseline_map():
     total_population = high_pop_areas['POP2010'].sum()
 
     # Calculate maximum estimated power consumption based on filtered population
-    max_estimated_consumption = (max_peak_power/MAX_POP) * (total_population)  # in MW
+    max_estimated_consumption = (BASELINE['MAX_POWER_PEAK']/MAX_POP) * (total_population)  # in MW
 
     # Load pipelines, power lines, and plants
     gas_pipeline_path = r'data/NaturalGas_InterIntrastate_Pipelines_US_georgia.geojson'
@@ -216,6 +235,50 @@ def create_baseline_map():
                 zorder=3
             )
 
+
+    # Remove duplicate military bases
+    unique_military_bases = []
+    seen_bases = set()
+    for base in military_bases:
+        if (base["name"], base["latitude"], base["longitude"]) not in seen_bases:
+            unique_military_bases.append(base)
+            seen_bases.add((base["name"], base["latitude"], base["longitude"]))
+
+    # Add military bases to the map with unique identifiers
+    base_colors = {
+        'Air Force Base': 'red',
+        'Army Base': 'green',
+        'Marine Base': 'blue',
+        'Navy Base': 'purple',
+        'National Guard Base': 'orange'
+    }
+    base_markers = {
+        'Air Force Base': 'v',  # tri-down
+        'Army Base': 'h',       # hexagon
+        'Marine Base': 'X',     # filled X
+        'Navy Base': 's',       # square
+        'National Guard Base': 'd'  # diamond
+    }
+
+    for base in unique_military_bases:
+        ax_baseline.scatter(
+            base["longitude"],
+            base["latitude"],
+            color=base_colors[base['type']],
+            marker=base_markers[base['type']],
+            s=100,
+            label=base["name"],
+            zorder=4
+        )
+        ax_baseline.text(
+            base["longitude"],
+            base["latitude"],
+            base["name"],
+            fontsize=9,
+            ha='right',
+            zorder=5
+        )
+
     # Add legend
     handles = [
         mlines.Line2D([], [], color='darkblue', marker='o', markersize=5, label='Substations', linestyle='None'),
@@ -249,30 +312,125 @@ fig_baseline = create_baseline_map()
 
 # Save the baseline network as a pickle file
 net = create_network_from_filtered_data()
-pickle_file_path = "Main_app/output_pandapower/baseline_network.pkl"
+pickle_file_path = "Main_app/output_pandapower/baseline_network.p"
 pp.to_pickle(net, pickle_file_path)
-st.success(f"Baseline network saved as pickle file: {pickle_file_path}")
 
 # Load the saved network
-net = load_network("output_pandapower/baseline_network.pkl")
-
-# Calculate line loading
+net = load_network("output_pandapower/baseline_network.p")
 def calculate_line_loading(net):
     pp.runpp(net)
     line_loading = net.res_line[['loading_percent']]
     return line_loading
 line_loading = calculate_line_loading(net)
-st.write("Line Loading in the Baseline Model:")
-st.write(line_loading)
+# Create the network graph using NetworkX
+G = create_nxgraph(net, respect_switches=True)
 
-# Generate and display the heatmap
-fig_heatmap = plot_network_heatmaps(net)
-st.plotly_chart(fig_heatmap, use_container_width=True)
+# Use geographical coordinates if available, otherwise use spring layout
+if hasattr(net, "bus_geodata") and not net.bus_geodata.empty:
+    pos = {bus: (net.bus_geodata.at[bus, "x"], net.bus_geodata.at[bus, "y"]) for bus in net.bus_geodata.index}
+else:
+    pos = nx.spring_layout(G, seed=42)
 
-# Add military bases to the map
-for base in military_bases:
-    plt.scatter(base["longitude"], base["latitude"], color='red', marker='^', s=100, label=base["name"])
-    plt.text(base["longitude"], base["latitude"], base["name"], fontsize=9, ha='right')
+# Prepare node trace for bus overloads
+node_x, node_y, node_color, node_text = [], [], [], []
+for bus in G.nodes():
+    x, y = pos[bus]
+    node_x.append(x)
+    node_y.append(y)
+    overload = G.nodes[bus].get("overload", 0)
+    node_color.append(overload)
+    label = f"Bus {bus}<br>Overload: {overload:.1f}%" if overload > 0 else ""
+    node_text.append(label)
+
+node_trace = go.Scatter(
+    x=node_x,
+    y=node_y,
+    mode="markers+text",
+    text=node_text,
+    textposition="top center",
+    hoverinfo="text",
+    marker=dict(
+        size=15,
+        color=node_color,
+        colorscale="Reds",
+        colorbar=dict(title="Bus Overload (%)", x=0.0),
+        cmin=0,
+        cmax=max(node_color) if node_color else 1,
+        line=dict(width=2)
+    )
+)
+
+# Prepare edge traces for line loadings
+edge_traces = []
+edge_annotations = []
+for idx, line in net.line.iterrows():
+    u = line["from_bus"]
+    v = line["to_bus"]
+    if u not in pos or v not in pos:
+        continue
+    x0, y0 = pos[u]
+    x1, y1 = pos[v]
+    loading = net.res_line.at[idx, "loading_percent"] if idx in net.res_line.index else 0
+    cmap = cm.get_cmap("Blues")
+    norm = mcolors.Normalize(vmin=0, vmax=100)
+    rgba = cmap(norm(loading))
+    hex_color = mcolors.to_hex(rgba)
+    edge_trace = go.Scatter(
+        x=[x0, x1],
+        y=[y0, y1],
+        mode="lines",
+        line=dict(color=hex_color, width=3),
+        hoverinfo="text",
+        text=f"Line {idx}<br>Loading: {loading:.1f}%"
+    )
+    edge_traces.append(edge_trace)
+    if loading > 100:
+        mid_x = (x0 + x1) / 2
+        mid_y = (y0 + y1) / 2
+        edge_annotations.append(dict(
+            x=mid_x,
+            y=mid_y,
+            text=f"{loading:.1f}%",
+            showarrow=False,
+            font=dict(color="red", size=15)
+        ))
+
+fig_network = go.Figure(
+    data=edge_traces + [node_trace],
+    layout=go.Layout(
+        title="Network Graph: Bus Overloads & Line Loadings",
+        showlegend=False,
+        hovermode="closest",
+        annotations=edge_annotations,
+        xaxis=dict(
+            scaleanchor="y", scaleratio=1,
+            showgrid=False, zeroline=False, showticklabels=False
+        ),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        width=750,
+        height=750,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+)
+
+# Add a dummy trace for the line loading colorbar
+dummy_trace = go.Scatter(
+    x=[None],
+    y=[None],
+    mode="markers",
+    marker=dict(
+        colorscale="Blues",
+        showscale=True,
+        cmin=0,
+        cmax=100,
+        colorbar=dict(title="Line Loading (%)", x=1.0)
+    ),
+    hoverinfo="none"
+)
+fig_network.add_trace(dummy_trace)
+
+st.plotly_chart(fig_network, use_container_width=True, key="network_chart")
+
 
 def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
