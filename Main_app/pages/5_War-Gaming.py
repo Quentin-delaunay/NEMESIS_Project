@@ -9,11 +9,13 @@ import pandas as pd
 import networkx as nx
 import matplotlib.lines as mlines
 import math
-from utils import create_network_from_filtered_data, plot_network_heatmaps
+from utils import create_network_from_filtered_data, plot_network_heatmaps, load_network
 import pandapower as pp
 import plotly.graph_objects as go
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+# Import military bases data
+from data.Military_bases import military_bases
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
@@ -26,6 +28,10 @@ BASELINE = {
 }
 electricity_imports= 2806.17899 #MW/hr or 24,582,128 MW a year
 electricity_exports = 0 #MW/hr or 0MW a year
+
+num_years_past_start = [1,2,3,4,5,6,7,8,9,10]
+additional_demand_per_year = 10000 / 10  # 10,000 MW over 10 years
+data_Center_demand = [1000 * year + additional_demand_per_year * year for year in num_years_past_start]
 
 source_colors = {
     'nuclear': ('blue', 'o'),
@@ -241,24 +247,20 @@ def create_baseline_map():
 # Create the baseline map
 fig_baseline = create_baseline_map()
 
-# Button to create and save the Pandapower network from filtered data
-if st.button("Create Pandapower Network from Filtered Data"):
-    try:
-        created_net = create_network_from_filtered_data()  # This function returns the created network
-        st.success("Pandapower network created and saved successfully!")
-    except Exception as e:
-        st.error(f"Error creating network: {e}")
+# Save the baseline network as a pickle file
+net = create_network_from_filtered_data()
+pickle_file_path = "Main_app/output_pandapower/baseline_network.pkl"
+pp.to_pickle(net, pickle_file_path)
+st.success(f"Baseline network saved as pickle file: {pickle_file_path}")
 
-# Function to calculate line loading in the baseline model
+# Load the saved network
+net = load_network("output_pandapower/baseline_network.pkl")
+
+# Calculate line loading
 def calculate_line_loading(net):
     pp.runpp(net)
     line_loading = net.res_line[['loading_percent']]
     return line_loading
-
-# Create Pandapower network from filtered data
-net = create_network_from_filtered_data()
-
-# Calculate line loading
 line_loading = calculate_line_loading(net)
 st.write("Line Loading in the Baseline Model:")
 st.write(line_loading)
@@ -267,13 +269,17 @@ st.write(line_loading)
 fig_heatmap = plot_network_heatmaps(net)
 st.plotly_chart(fig_heatmap, use_container_width=True)
 
+# Add military bases to the map
+for base in military_bases:
+    plt.scatter(base["longitude"], base["latitude"], color='red', marker='^', s=100, label=base["name"])
+    plt.text(base["longitude"], base["latitude"], base["name"], fontsize=9, ha='right')
+
 def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
 
 def cyber_attack_effect():
     power_plants_path = r'data/Power_Plants_georgia.geojson'
     power_plants = gpd.read_file(power_plants_path)
-    
     # Function to set a random top 5 plant's production to their max installed MW
     # Sort plants by Install_MW and select the top 5
     top5_plants = power_plants.nlargest(5, 'Install_MW')
