@@ -16,39 +16,37 @@ import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from pandapower.topology import create_nxgraph
 
-
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
 
 military_bases = [
-    {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056,'type':'Air Force Base'},
-    {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667,'type':'Air Force Base'},
-    {"name": "Dobbins Air Reserve Base", "latitude": 33.915278, "longitude": -84.516389,'type':'Air Force Base'},
-    {"name": "Fort Benning Army Base", "latitude": 32.366111, "longitude": -84.969167,'type':'Army Base'},
-    {"name": "Fort Gillem", "latitude": 33.6202, "longitude": -84.3289,'type':'Army Base'},
-    {"name": "Fort Gordon", "latitude": 33.413333, "longitude": -82.135278,'type':'Army Base'},
-    {"name": "Fort McPherson", "latitude": 33.706206, "longitude": -84.433279,'type':'Army Base'},
-    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075,'type':'Army Base'},
-    {"name": "Hunter Army Airfield", "latitude": 32.01, "longitude": -81.145556,'type':'Army Base'},
-    {"name": "Marine Corps Logistics Base Albany", "latitude": 31.55, "longitude": -84.054167,'type':'Marine Base'},
-    {"name": "Naval Submarine Base Kings Bay", "latitude": 30.781667, "longitude": -81.535,'type':'Navy Base'},
-    {"name": "Fort Eisenhower", "latitude": 33.413333, "longitude": -82.135278,'type':'Army Base'},
-    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075,'type':'Army Base'},
-    {"name": "Camp Frank D Merrill", "latitude": 34.628293, "longitude": -84.103033,'type':'Army Base'},
-    {"name": "General Lucius D. Clay National Guard Center", "latitude": 33.915278, "longitude": -84.516389,'type':'National Guard Base'},
-    ]
-
+    {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056, 'type': 'Air Force Base'},
+    {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667, 'type': 'Air Force Base'},
+    {"name": "Dobbins Air Reserve Base", "latitude": 33.915278, "longitude": -84.516389, 'type': 'Air Force Base'},
+    {"name": "Fort Benning Army Base", "latitude": 32.366111, "longitude": -84.969167, 'type': 'Army Base'},
+    {"name": "Fort Gillem", "latitude": 33.6202, "longitude": -84.3289, 'type': 'Army Base'},
+    {"name": "Fort Gordon", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Fort McPherson", "latitude": 33.706206, "longitude": -84.433279, 'type': 'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075, 'type': 'Army Base'},
+    {"name": "Hunter Army Airfield", "latitude": 32.01, "longitude": -81.145556, 'type': 'Army Base'},
+    {"name": "Marine Corps Logistics Base Albany", "latitude": 31.55, "longitude": -84.054167, 'type': 'Marine Base'},
+    {"name": "Naval Submarine Base Kings Bay", "latitude": 30.781667, "longitude": -81.535, 'type': 'Navy Base'},
+    {"name": "Fort Eisenhower", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075, 'type': 'Army Base'},
+    {"name": "Camp Frank D Merrill", "latitude": 34.628293, "longitude": -84.103033, 'type': 'Army Base'},
+    {"name": "General Lucius D. Clay National Guard Center", "latitude": 33.915278, "longitude": -84.516389, 'type': 'National Guard Base'},
+]
 
 BASELINE = {
-    'MIN_POPULATION': 50000, #This makes the filter take look at all the urban areas
-    'MAX_POWER_PEAK': 15636, # MW Georgia Power IRP prediction for 2024
-    'POWER_INSTALLED': 37786, # MW Generated in Georgia in total
-    'MIN_VOLTAGE': 250# looks at only major transmission lines
+    'MIN_POPULATION': 50000,  # This makes the filter take look at all the urban areas
+    'MAX_POWER_PEAK': 15636,  # MW Georgia Power IRP prediction for 2024
+    'POWER_INSTALLED': 37786,  # MW Generated in Georgia in total
+    'MIN_VOLTAGE': 250  # looks at only major transmission lines
 }
-electricity_imports= 2806.17899 #MW/hr or 24,582,128 MW a year
-electricity_exports = 0 #MW/hr or 0MW a year
+electricity_imports = 2806.17899  # MW/hr or 24,582,128 MW a year
+electricity_exports = 0  # MW/hr or 0MW a year
 
-num_years_past_start = [1,2,3,4,5,6,7,8,9,10]
+num_years_past_start = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 additional_demand_per_year = 10000 / 10  # 10,000 MW over 10 years
 data_Center_demand = [1000 * year + additional_demand_per_year * year for year in num_years_past_start]
 
@@ -66,12 +64,14 @@ source_colors = {
 }
 
 # Function to calculate distance between two points (Haversine formula)
-def haversine(lon1, lat1, lon2, lat2):
-    R = 6371  # Earth radius in kilometers
-    dlon = math.radians(lon2 - lon1)
-    dlat = math.radians(lon2 - lat1)
-    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+def haversine(lat1, lon1, lat2, lon2):
+    R = 3959.87433  # Earth radius in miles
+    dLat = math.radians(lat2 - lat1)
+    dLon = math.radians(lon2 - lon1)
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+    a = math.sin(dLat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) ** 2
+    c = 2 * math.asin(sqrt(a))
     return R * c
 
 GA_energy_consumption = {
@@ -85,7 +85,6 @@ Power_installed = BASELINE['POWER_INSTALLED']
 max_peak_power = BASELINE['MAX_POWER_PEAK']
 Elec_per_CP_2024 = Power_installed * max_peak_power * 1e6 / 11e6  # MW
 
-# Function to create the baseline map
 def create_baseline_map():
     # Load population data
     population_path = r'data/USA_Urban_Areas_(1%3A500k-1.5M).geojson'
@@ -110,7 +109,7 @@ def create_baseline_map():
     total_population = high_pop_areas['POP2010'].sum()
 
     # Calculate maximum estimated power consumption based on filtered population
-    max_estimated_consumption = (BASELINE['MAX_POWER_PEAK']/MAX_POP) * (total_population)  # in MW
+    max_estimated_consumption = (BASELINE['MAX_POWER_PEAK'] / MAX_POP) * (total_population)  # in MW
 
     # Load pipelines, power lines, and plants
     gas_pipeline_path = r'data/NaturalGas_InterIntrastate_Pipelines_US_georgia.geojson'
@@ -207,7 +206,7 @@ def create_baseline_map():
     baseline_substations_gdf.plot(ax=ax_baseline, color='darkblue', marker='o', markersize=5, label='Substations', zorder=3)
 
     # Calculate and plot baseline power plants
-    baseline_power_needed = (BASELINE['MAX_POWER_PEAK']/MAX_POP) * baseline_pop_areas['POP2010'].sum() * BASELINE['POWER_INSTALLED'] * 1e6
+    baseline_power_needed = (BASELINE['MAX_POWER_PEAK'] / MAX_POP) * baseline_pop_areas['POP2010'].sum() * BASELINE['POWER_INSTALLED'] * 1e6
     remaining_power = baseline_power_needed / 1e6
     baseline_power_plants = {}
 
@@ -234,7 +233,6 @@ def create_baseline_map():
                 marker=marker,
                 zorder=3
             )
-
 
     # Remove duplicate military bases
     unique_military_bases = []
@@ -309,19 +307,16 @@ def create_baseline_map():
 
 # Create the baseline map
 fig_baseline = create_baseline_map()
-
-# Save the baseline network as a pickle file
-net = create_network_from_filtered_data()
-pickle_file_path = "Main_app/output_pandapower/baseline_network.p"
-pp.to_pickle(net, pickle_file_path)
-
 # Load the saved network
 net = load_network("output_pandapower/baseline_network.p")
+
 def calculate_line_loading(net):
     pp.runpp(net)
     line_loading = net.res_line[['loading_percent']]
     return line_loading
+
 line_loading = calculate_line_loading(net)
+
 # Create the network graph using NetworkX
 G = create_nxgraph(net, respect_switches=True)
 
@@ -431,6 +426,45 @@ fig_network.add_trace(dummy_trace)
 
 st.plotly_chart(fig_network, use_container_width=True, key="network_chart")
 
+def find_nearest_military_bases_to_lines(line_positions, military_bases, top_n=3):
+    nearest_bases = []
+    for line, (line_x, line_y) in line_positions.items():
+        distances = []
+        for base in military_bases:
+            distance = haversine(line_y, line_x, base["latitude"], base["longitude"])
+            distances.append((base["name"], distance))
+        distances.sort(key=lambda x: x[1])
+        nearest_bases.append((line, distances[:top_n]))
+    return nearest_bases
+
+# Find the three highest loaded lines
+highest_loaded_lines = net.res_line.nlargest(3, 'loading_percent').index
+
+# Calculate the midpoint of each line
+line_positions = {}
+for idx in highest_loaded_lines:
+    line = net.line.loc[idx]
+    u = line["from_bus"]
+    v = line["to_bus"]
+    if u in pos and v in pos:
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        mid_x = (x0 + x1) / 2
+        mid_y = (y0 + y1) / 2
+        line_positions[idx] = (mid_x, mid_y)
+
+# Find the nearest military bases to the highest loaded lines
+nearest_bases_to_lines = find_nearest_military_bases_to_lines(line_positions, military_bases)
+
+# Display the results on the dashboard
+st.subheader("Nearest Military Bases to Highly Loaded Lines")
+for line, bases in nearest_bases_to_lines:
+    line_loading = net.res_line.at[line, 'loading_percent']
+    st.write(f"Line {line} (Loading: {line_loading:.1f}%) is closest to the following military bases:")
+    table_data = []
+    for base, distance in bases:
+        table_data.append({"Base": base, "Distance (km)": distance})
+    st.table(pd.DataFrame(table_data))
 
 def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
