@@ -41,14 +41,23 @@ BASELINE = {
     'MIN_POPULATION': 50000,  # This makes the filter take look at all the urban areas
     'MAX_POWER_PEAK': 15636,  # MW Georgia Power IRP prediction for 2024
     'POWER_INSTALLED': 37786,  # MW Generated in Georgia in total
-    'MIN_VOLTAGE': 250  # looks at only major transmission lines
+    'MIN_VOLTAGE': 300  # looks at only major transmission lines
 }
+years_pred = [2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040,2041,2042,2043,2044]
+Max_power_peak_pred = [15636,16300,17300,18300,20250,22200,23350,24500,24850,25200,25450,25700,25850,26000,26300,26600,26950,27300,27700,28100,28500]
 electricity_imports = 2806.17899  # MW/hr or 24,582,128 MW a year
 electricity_exports = 0  # MW/hr or 0MW a year
+selected_year = st.slider('Select Year', min_value=2024, max_value=2044, value=2024, step=1)
+BASELINE['MAX_POWER_PEAK'] = Max_power_peak_pred[years_pred.index(selected_year)]
 
-num_years_past_start = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-additional_demand_per_year = 10000 / 10  # 10,000 MW over 10 years
-data_Center_demand = [1000 * year + additional_demand_per_year * year for year in num_years_past_start]
+# Update BASELINE MAX_POWER_PEAK based on selected year
+BASELINE['MAX_POWER_PEAK'] = Max_power_peak_pred[years_pred.index(selected_year)]
+
+# Calculate the power installed with an annual growth rate of 2.4%
+initial_power_installed = 37786  # MW
+growth_rate = 0.024
+years_since_2024 = selected_year - 2024
+BASELINE['POWER_INSTALLED'] = initial_power_installed * ((1 + growth_rate) ** years_since_2024)
 
 source_colors = {
     'nuclear': ('blue', 'o'),
@@ -60,7 +69,6 @@ source_colors = {
     'biomass': ('brown', 'P'),
     'other': ('gray', '*'),
     'solar': ('yellow', 'h'),
-    'batteries': ('purple', 'o')
 }
 
 # Function to calculate distance between two points (Haversine formula)
@@ -124,7 +132,7 @@ def create_baseline_map():
     power_plants = gpd.read_file(power_plants_path)
 
     # Calculate required power
-    Power_needed = max_estimated_consumption * Power_installed * 1e6
+    Power_needed = max_estimated_consumption * BASELINE['POWER_INSTALLED'] * 1e6
     sorted_plants = power_plants.sort_values(by='Install_MW', ascending=False)
     remaining_power_needed = Power_needed / 1e6
     filtered_power_plants = {}
@@ -265,16 +273,7 @@ def create_baseline_map():
             color=base_colors[base['type']],
             marker=base_markers[base['type']],
             s=100,
-            label=base["name"],
             zorder=4
-        )
-        ax_baseline.text(
-            base["longitude"],
-            base["latitude"],
-            base["name"],
-            fontsize=9,
-            ha='right',
-            zorder=5
         )
 
     # Add legend
@@ -285,28 +284,21 @@ def create_baseline_map():
         mlines.Line2D([], [], color=color, marker=marker, markersize=10, label=source.capitalize(), linestyle='None')
         for source, (color, marker) in source_colors.items()
         if source in baseline_power_plants
+    ] + [
+        mlines.Line2D([], [], color=color, marker=base_markers[base_type], markersize=10, label=base_type, linestyle='None')
+        for base_type, color in base_colors.items()
     ]
 
     ax_baseline.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1))
     plt.axis('off')
     st.pyplot(fig_baseline)
 
-    # Display baseline metrics
-    baseline_total_population = baseline_pop_areas['POP2010'].sum()
-    baseline_installed_power = sum(
-        sum(plant['Install_MW'] for plant in plants)
-        for plants in baseline_power_plants.values()
-    )
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Population", f"{baseline_total_population:,.0f}")
-    col2.metric("Installed Power", f"{baseline_installed_power:.2f} MW")
-    col3.metric("Min Population", f"{BASELINE['MIN_POPULATION']:,}")
-    col4.metric("Min Voltage", f"{BASELINE['MIN_VOLTAGE']} kV")
+    return substations_gdf, high_pop_areas, edges, fig_baseline, baseline_power_plants
 
-    return fig_baseline
+# Create the baseline map and get the data
+substations_gdf, high_pop_areas, edges, fig_baseline, baseline_power_plants = create_baseline_map()
 
-# Create the baseline map
-fig_baseline = create_baseline_map()
+
 # Load the saved network
 net = load_network("output_pandapower/baseline_network.p")
 
