@@ -35,6 +35,24 @@ source_colors = {
     'solar': ('yellow', 'h'),
     'batteries': ('purple', 'o')
 }
+military_bases = [
+    {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056, 'type': 'Air Force Base'},
+    {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667, 'type': 'Air Force Base'},
+    {"name": "Dobbins Air Reserve Base", "latitude": 33.915278, "longitude": -84.516389, 'type': 'Air Force Base'},
+    {"name": "Fort Benning Army Base", "latitude": 32.366111, "longitude": -84.969167, 'type': 'Army Base'},
+    {"name": "Fort Gillem", "latitude": 33.6202, "longitude": -84.3289, 'type': 'Army Base'},
+    {"name": "Fort Gordon", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Fort McPherson", "latitude": 33.706206, "longitude": -84.433279, 'type': 'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075, 'type': 'Army Base'},
+    {"name": "Hunter Army Airfield", "latitude": 32.01, "longitude": -81.145556, 'type': 'Army Base'},
+    {"name": "Marine Corps Logistics Base Albany", "latitude": 31.55, "longitude": -84.054167, 'type': 'Marine Base'},
+    {"name": "Naval Submarine Base Kings Bay", "latitude": 30.781667, "longitude": -81.535, 'type': 'Navy Base'},
+    {"name": "Fort Eisenhower", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075, 'type': 'Army Base'},
+    {"name": "Camp Frank D Merrill", "latitude": 34.628293, "longitude": -84.103033, 'type': 'Army Base'},
+    {"name": "General Lucius D. Clay National Guard Center", "latitude": 33.915278, "longitude": -84.516389, 'type': 'National Guard Base'},
+]
+
 
 # Function to calculate distance between two points (Haversine formula)
 def haversine(lon1, lat1, lon2, lat2):
@@ -177,6 +195,39 @@ if view == "Filtered Data Visualization":
             size = (plant['Install_MW'] / power_plants['Install_MW'].max()) * 300
             ax.scatter(plant['Longitude'], plant['Latitude'], color=color, label=source.capitalize(),
                        s=size, alpha=0.8, edgecolor='black', marker=marker, zorder=3)
+# Remove duplicate military bases
+    unique_military_bases = []
+    seen_bases = set()
+    for base in military_bases:
+        if (base["name"], base["latitude"], base["longitude"]) not in seen_bases:
+            unique_military_bases.append(base)
+            seen_bases.add((base["name"], base["latitude"], base["longitude"]))
+
+# Add military bases to the map with unique identifiers
+    base_colors = {
+    'Air Force Base': 'red',
+    'Army Base': 'green',
+    'Marine Base': 'blue',
+    'Navy Base': 'purple',
+    'National Guard Base': 'orange'
+    }
+    base_markers = {
+    'Air Force Base': 'v',  # tri-down
+    'Army Base': 'h',       # hexagon
+    'Marine Base': 'X',     # filled X
+    'Navy Base': 's',       # square
+    'National Guard Base': 'd'  # diamond
+    }
+
+    for base in unique_military_bases:
+        ax.scatter(
+            base["longitude"],
+            base["latitude"],
+            color=base_colors[base['type']],
+            marker=base_markers[base['type']],
+            s=100,
+            zorder=4
+        )
 
     handles = [
         mlines.Line2D([], [], color='darkblue', marker='o', markersize=5, label='Substations', linestyle='None'),
@@ -184,6 +235,9 @@ if view == "Filtered Data Visualization":
     ] + [
         mlines.Line2D([], [], color=color, marker=marker, markersize=10, label=source.capitalize(), linestyle='None')
         for source, (color, marker) in source_colors.items()
+    ] + [
+        mlines.Line2D([], [], color=color, marker=base_markers[base_type], markersize=10, label=base_type, linestyle='None')
+        for base_type, color in base_colors.items()
     ]
     ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1))
     plt.title("Georgia Energy Infrastructure")
