@@ -401,10 +401,10 @@ if view == "Filtered Data Visualization":
                 nearest_bus = merged_buses.iloc[nearest_bus_idx]
 
                 # Estimate load for this urban area
-                estimated_max_load = (area['POP2010'] / total_population) * max_estimated_consumption  # MW
+                estimated_max_load = (area['POP2010'] / total_population) # fractional load per bus
                 loads.append({
                     "bus": nearest_bus['bus_id'],
-                    "p_kw": estimated_max_load * 1000,  # Convert MW to kW
+                    "p_kw": estimated_max_load, 
                     "type": "urban",
                     "name": f"{area['NAME']} (Nearest Bus {nearest_bus['bus_id']})"
                 })
