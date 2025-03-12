@@ -38,31 +38,35 @@ def folium_plot(net):
     bus_details = {}
     for bus in net.bus_geodata.index:
         details = f"<b>Bus {bus}</b><br>"
-        if "name" in net.bus.columns:
-            details += f"Name: {net.bus.at[bus, 'name']}<br>"
-        if "vn_kv" in net.bus.columns:
-            details += f"Voltage: {net.bus.at[bus, 'vn_kv']} kV<br>"
-        # Connected lines for this bus
-        connected_lines = net.line[(net.line["from_bus"] == bus) | (net.line["to_bus"] == bus)]
-        if not connected_lines.empty:
-            details += "<br><b>Connected Lines:</b><br>"
-            for idx, line in connected_lines.iterrows():
-                details += f"Line {idx}: {line['from_bus']} ↔ {line['to_bus']}<br>"
-        # Generators at this bus
-        gens = net.gen[net.gen["bus"] == bus]
-        if not gens.empty:
-            details += "<br><b>Generators:</b><br>"
-            for idx, gen in gens.iterrows():
-                p_mw = gen.get("p_mw", "N/A")
-                details += f"Generator {idx}: max P = {gen['max_p_mw']} MW, P = {p_mw} MW<br>"
-        # Loads at this bus
-        loads = net.load[net.load["bus"] == bus]
-        if not loads.empty:
-            details += "<br><b>Loads:</b><br>"
-            for idx, load in loads.iterrows():
-                details += f"Load {idx}: P = {load['p_mw']} MW<br>"
+        try:
+            if "name" in net.bus.columns:
+                details += f"Name: {net.bus.at[bus, 'name']}<br>"
+            if "vn_kv" in net.bus.columns:
+                    details += f"Voltage: {net.bus.at[bus, 'vn_kv']} kV<br>"
 
-        bus_details[bus] = details
+            # Connected lines for this bus
+            connected_lines = net.line[(net.line["from_bus"] == bus) | (net.line["to_bus"] == bus)]
+            if not connected_lines.empty:
+                details += "<br><b>Connected Lines:</b><br>"
+                for idx, line in connected_lines.iterrows():
+                    details += f"Line {idx}: {line['from_bus']} ↔ {line['to_bus']}<br>"
+            # Generators at this bus
+            gens = net.gen[net.gen["bus"] == bus]
+            if not gens.empty:
+                details += "<br><b>Generators:</b><br>"
+                for idx, gen in gens.iterrows():
+                    p_mw = gen.get("p_mw", "N/A")
+                    details += f"Generator {idx}: max P = {gen['max_p_mw']} MW, P = {p_mw} MW<br>"
+            # Loads at this bus
+            loads = net.load[net.load["bus"] == bus]
+            if not loads.empty:
+                details += "<br><b>Loads:</b><br>"
+                for idx, load in loads.iterrows():
+                    details += f"Load {idx}: P = {load['p_mw']} MW<br>"
+
+            bus_details[bus] = details
+        except Exception as e:
+            bus_details[bus] = f"<b>Bus {bus}</b><br>Error retrieving details: {str(e)}"
 
     # Add bus markers with popups
     for bus in net.bus_geodata.index:
@@ -435,11 +439,11 @@ def create_network_from_filtered_data(output_folder=r"Main_app\output_pandapower
             pp.create_load(
                 net,
                 bus=departure_bus,
-                p_mw=load['p_kw'] * 0.001,  # Convert kW to MW
-                max_p_mw=load['p_kw'] * 0.001,
+                p_mw=load['p_kw'],  # Fraction
+                max_p_mw=load['p_kw'],
                 min_p_mw=0,
                 name=load['name'],
-                max_q_mvar=load['p_kw'] * 0.001 / 0.9,
+                max_q_mvar=load['p_kw'] / 0.9,
                 min_q_mvar=0,
                 controllable=False
             )

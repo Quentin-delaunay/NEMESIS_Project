@@ -5,7 +5,7 @@ import pandapower as pp
 import os
 import pickle
 import re
-
+import pandas as pd
 
 TYPE_SYNONYMS = {
     "nuclear": "nuclear",
@@ -230,7 +230,7 @@ with col_right:
                 selected_line = st.selectbox("Select a line to delete", line_ids, key="delete_line")
                 if st.button("Delete Line"):
                     try:
-                        pp.drop_elements_simple(net, "line", selected_line)
+                        pp.drop_lines(net, [selected_line])
                         st.success(f"Line {selected_line} has been deleted.")
                     except Exception as e:
                         st.error(f"Error deleting line {selected_line}: {e}")
@@ -304,7 +304,8 @@ with col_right:
                 selected_bus = st.selectbox("Select a bus to delete", bus_ids, key="delete_bus")
                 if st.button("Delete Bus", key="del_bus"):
                     try:
-                        pp.drop_elements_simple(net, "bus", selected_bus)
+                        pp.drop_elements_at_buses(net, [selected_bus]) 
+                        pp.drop_buses(net, [selected_bus])
                         st.success(f"Bus {selected_bus} has been deleted.")
                     except Exception as e:
                         st.error(f"Error deleting bus {selected_bus}: {e}")

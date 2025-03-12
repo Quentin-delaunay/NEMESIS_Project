@@ -156,10 +156,13 @@ def run_simulation_steps(start, end):
         load_forecast = forecast_csv.iloc[t]["yhat"]
         total_orig = sum(original_loads.values())
         for idx, orig_val in original_loads.items():
+            try: # When deleting a bus, the associated load is deleted from the network but is still in original_loads
             # Update only if the load is fractional
-            if "fraction" in net.load.columns and net.load.at[idx, "fraction"]:
-                new_load = load_forecast * (orig_val / total_orig)
-                net.load.at[idx, "p_mw"] = new_load
+                if "fraction" in net.load.columns and net.load.at[idx, "fraction"]:
+                    new_load = load_forecast * (orig_val / total_orig)
+                    net.load.at[idx, "p_mw"] = new_load
+            except KeyError:
+                continue
 
 
         # Exécuter l'OPF ; si ça échoue, on logge l'erreur et on saute ce timestep.
@@ -357,8 +360,8 @@ node_trace = go.Scatter(
         color=node_color,
         colorscale="Reds",
         colorbar=dict(title="Bus Overload (%)", x=0.0),
-        cmin=0,
-        cmax=max(node_color) if node_color else 1,
+        cmin=-10,
+        cmax=10, #max(node_color) if node_color else 1,
         line=dict(width=2)
     )
 )
