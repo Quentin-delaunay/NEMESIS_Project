@@ -36,6 +36,40 @@ source_colors = {
     'batteries': ('purple', 'o')
 }
 
+military_bases = [
+    {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056, 'type': 'Air Force Base'},
+    {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667, 'type': 'Air Force Base'},
+    {"name": "Dobbins Air Reserve Base", "latitude": 33.915278, "longitude": -84.516389, 'type': 'Air Force Base'},
+    {"name": "Fort Benning Army Base", "latitude": 32.366111, "longitude": -84.969167, 'type': 'Army Base'},
+    {"name": "Fort Gillem", "latitude": 33.6202, "longitude": -84.3289, 'type': 'Army Base'},
+    {"name": "Fort Gordon", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Fort McPherson", "latitude": 33.706206, "longitude": -84.433279, 'type': 'Army Base'},
+    {"name": "Fort Stewart", "latitude": 31.88, "longitude": -81.6075, 'type': 'Army Base'},
+    {"name": "Hunter Army Airfield", "latitude": 32.01, "longitude": -81.145556, 'type': 'Army Base'},
+    {"name": "Marine Corps Logistics Base Albany", "latitude": 31.55, "longitude": -84.054167, 'type': 'Marine Base'},
+    {"name": "Naval Submarine Base Kings Bay", "latitude": 30.781667, "longitude": -81.535, 'type': 'Navy Base'},
+    {"name": "Fort Eisenhower", "latitude": 33.413333, "longitude": -82.135278, 'type': 'Army Base'},
+    {"name": "Camp Frank D Merrill", "latitude": 34.628293, "longitude": -84.103033, 'type': 'Army Base'},
+    {"name": "General Lucius D. Clay National Guard Center", "latitude": 33.915278, "longitude": -84.516389, 'type': 'National Guard Base'},
+]
+
+# Define colors and markers for military base types
+base_colors = {
+    'Air Force Base': 'red',
+    'Army Base': 'green', 
+    'Marine Base': 'blue',
+    'Navy Base': 'purple',
+    'National Guard Base': 'orange'
+}
+
+base_markers = {
+    'Air Force Base': 'v',  # tri-down
+    'Army Base': 'h',       # hexagon
+    'Marine Base': 'X',     # filled X
+    'Navy Base': 's',       # square
+    'National Guard Base': 'd'  # diamond
+}
+
 # Function to calculate distance between two points (Haversine formula)
 def haversine(lon1, lat1, lon2, lat2):
     R = 6371  # Earth radius in kilometers
@@ -178,12 +212,24 @@ if view == "Filtered Data Visualization":
             ax.scatter(plant['Longitude'], plant['Latitude'], color=color, label=source.capitalize(),
                        s=size, alpha=0.8, edgecolor='black', marker=marker, zorder=3)
 
+    # Plot military bases
+    for base in military_bases:
+        ax.scatter(base['longitude'], base['latitude'], 
+                  color=base_colors.get(base['type'], 'gray'),
+                  marker=base_markers.get(base['type'], 'o'),
+                  s=100, edgecolor='black',
+                  label=base['type'], zorder=4)
+
+    # Update handles to include military bases
     handles = [
         mlines.Line2D([], [], color='darkblue', marker='o', markersize=5, label='Substations', linestyle='None'),
         mlines.Line2D([], [], color='red', label='Power Lines')
     ] + [
         mlines.Line2D([], [], color=color, marker=marker, markersize=10, label=source.capitalize(), linestyle='None')
         for source, (color, marker) in source_colors.items()
+    ] + [
+        mlines.Line2D([], [], color=color, marker=base_markers[base_type], markersize=10, label=base_type, linestyle='None')
+        for base_type, color in base_colors.items()
     ]
     ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1))
     plt.title("Georgia Energy Infrastructure")
@@ -533,7 +579,40 @@ elif view == "Mathematical Graph Visualization":
             ).add_to(m)
 
         
+    # Add military bases to the map
+    base_icons = {
+        'Air Force Base': 'plane',
+        'Army Base': 'shield',
+        'Marine Base': 'anchor',
+        'Navy Base': 'ship',
+        'National Guard Base': 'users'
+    }
+    
+    for base in military_bases:
+        icon_name = base_icons.get(base['type'], 'building')
+        color = base_colors.get(base['type'], 'gray')
+        
+        folium.Marker(
+            location=(base['latitude'], base['longitude']),
+            icon=folium.Icon(color=color, icon=icon_name, prefix='fa'),
+            tooltip=f"{base['name']} ({base['type']})"
+        ).add_to(m)
 
+    # Update the legend to include military bases
+    legend_html = """
+    <div style="position: fixed; 
+                bottom: 50px; left: 50px; width: 250px; height: auto; 
+                background-color: white; z-index:9999; font-size:14px;
+                border:2px solid grey; border-radius:10px; padding: 10px;">
+        <strong>Generator Types</strong><br>
+    """
+    for source, (color, _) in source_colors.items():
+        legend_html += f"<i style='background:{color}; width:10px; height:10px; float:left; margin-right:5px;'></i>{source.capitalize()}<br>"
+    
+    legend_html += "<strong>Military Bases</strong><br>"
+    for base_type, color in base_colors.items():
+        legend_html += f"<i style='background:{color}; width:10px; height:10px; float:left; margin-right:5px;'></i>{base_type}<br>"
+    legend_html += "</div>"
 
 
     # Add legend for generator types
