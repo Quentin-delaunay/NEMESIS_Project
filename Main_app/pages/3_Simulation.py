@@ -473,6 +473,18 @@ if "sim_history" in st.session_state and st.session_state["sim_history"]:
         fig_pie = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.3)])
         fig_pie.update_layout(title="Generation Distribution by Generator")
         st.plotly_chart(fig_pie, use_container_width=True, key="pie_chart")
+
+        types = [re.findall(r'\((.*?)\)', gen_names[gen_id])[0] for gen_id in gen_dist.keys()]
+        unique_types = list(set(types))
+        type_values = [0 for _ in range(len(unique_types))]
+        for i, label in enumerate(labels):
+            gen_type = types[i]
+            type_idx = unique_types.index(gen_type)
+            type_values[type_idx] += values[i]
+        fig_pie2 = go.Figure(data=[go.Pie(labels=unique_types, values=type_values, hole=0.3)])
+        fig_pie2.update_layout(title="Generation Distribution by Type")
+        st.plotly_chart(fig_pie2, use_container_width=True, key="pie_chart2")
+
     else:
         st.info("No generation data available for the first timestep.")
 else:
