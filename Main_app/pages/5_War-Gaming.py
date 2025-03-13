@@ -48,7 +48,7 @@ Max_power_peak_pred = [15636,16300,17300,18300,20250,22200,23350,24500,24850,252
 electricity_imports = 2806.17899  # MW/hr or 24,582,128 MW a year
 electricity_exports = 0  # MW/hr or 0MW a year
 selected_year = st.slider('Select Year', min_value=2024, max_value=2044, value=2024, step=1)
-BASELINE['MAX_POWER_PEAK'] = Max_power_peak_pred[years_pred.index(selected_year)]
+
 
 # Update BASELINE MAX_POWER_PEAK based on selected year
 BASELINE['MAX_POWER_PEAK'] = Max_power_peak_pred[years_pred.index(selected_year)]
@@ -120,10 +120,6 @@ def create_baseline_map():
     max_estimated_consumption = (BASELINE['MAX_POWER_PEAK'] / MAX_POP) * (total_population)  # in MW
 
     # Load pipelines, power lines, and plants
-    gas_pipeline_path = r'data/NaturalGas_InterIntrastate_Pipelines_US_georgia.geojson'
-    gas_pipeline = gpd.read_file(gas_pipeline_path)
-    gas_pipeline = gas_pipeline[gas_pipeline.geometry.intersects(georgia_union)]
-
     power_lines_path = r'data/Transmission_Lines_all.geojson'
     power_lines = gpd.read_file(power_lines_path)
     power_lines = power_lines[power_lines['VOLTAGE'] >= BASELINE['MIN_VOLTAGE']]
@@ -145,12 +141,6 @@ def create_baseline_map():
             filtered_power_plants[prim_source].append(row)
             remaining_power_needed -= plant_capacity
 
-    # Installed power for filtered power plants
-    installed_power = sum(
-        sum(plant['Install_MW'] for plant in plants)
-        for plants in filtered_power_plants.values()
-    )
-
     # Extract substations and create edges
     substations = []
     for _, line in power_lines.iterrows():
@@ -170,51 +160,38 @@ def create_baseline_map():
         if start_substation != end_substation:
             edges.append((start_substation, end_substation, line['VOLTAGE']))
 
-    # Create baseline visualization
+    # Create baseline visualization using same method as filtering file
     fig_baseline, ax_baseline = plt.subplots(figsize=(12, 8))
     gpd.GeoSeries([georgia_union]).plot(ax=ax_baseline, color='lightgray', edgecolor='black', zorder=0)
 
-    # Process baseline data
-    baseline_pop_areas = urban_in_georgia[urban_in_georgia['POP2010'] > BASELINE['MIN_POPULATION']].copy()
-    baseline_pop_areas['longitude'] = baseline_pop_areas['geometry'].centroid.x
-    baseline_pop_areas['latitude'] = baseline_pop_areas['geometry'].centroid.y
-    baseline_pop_areas['diameter'] = baseline_pop_areas['SQMI'].apply(lambda sqmi: sqrt(sqmi * 2.58999 / 3.14159) * 2)
-
-    # Plot baseline population areas
-    pop_plot = baseline_pop_areas.plot(
+    # Plot population areas - using same styling as filtering file
+    high_pop_areas.plot(
         column='POP2010',
         cmap='inferno',
         legend=False,
         ax=ax_baseline,
         edgecolor='black',
         linewidth=0.5,
-        norm=LogNorm(vmin=baseline_pop_areas['POP2010'].min(), vmax=baseline_pop_areas['POP2010'].max())
+        norm=LogNorm(vmin=high_pop_areas['POP2010'].min(), vmax=high_pop_areas['POP2010'].max()),
+        zorder=1
     )
 
     # Add colorbar
     sm = plt.cm.ScalarMappable(
         cmap='inferno',
-        norm=LogNorm(vmin=baseline_pop_areas['POP2010'].min(), vmax=baseline_pop_areas['POP2010'].max())
+        norm=LogNorm(vmin=high_pop_areas['POP2010'].min(), vmax=high_pop_areas['POP2010'].max())
     )
     cbar = fig_baseline.colorbar(sm, ax=ax_baseline, orientation='vertical', pad=0.1, location='left')
     cbar.set_label('Population in Urban Areas')
 
-    # Filter and plot baseline infrastructure
-    baseline_power_lines = power_lines[power_lines['VOLTAGE'] >= BASELINE['MIN_VOLTAGE']]
-    baseline_power_lines.plot(ax=ax_baseline, color='red', linewidth=0.5, label='Power Lines', zorder=2)
+    # Plot power lines
+    power_lines.plot(ax=ax_baseline, color='red', linewidth=0.5, label='Power Lines', zorder=2)
 
-    # Calculate baseline substations
-    baseline_substations = []
-    for _, line in baseline_power_lines.iterrows():
-        coords = list(line['geometry'].coords)
-        baseline_substations.append(Point(coords[0]))
-        baseline_substations.append(Point(coords[-1]))
-    baseline_substations_gdf = gpd.GeoDataFrame(geometry=baseline_substations, crs=baseline_power_lines.crs)
-    baseline_substations_gdf = baseline_substations_gdf.drop_duplicates(subset=['geometry'])
-    baseline_substations_gdf.plot(ax=ax_baseline, color='darkblue', marker='o', markersize=5, label='Substations', zorder=3)
+    # Plot substations
+    substations_gdf.plot(ax=ax_baseline, color='darkblue', marker='o', markersize=5, zorder=3)
 
-    # Calculate and plot baseline power plants
-    baseline_power_needed = (BASELINE['MAX_POWER_PEAK'] / MAX_POP) * baseline_pop_areas['POP2010'].sum() * BASELINE['POWER_INSTALLED'] * 1e6
+    # Get baseline power plants
+    baseline_power_needed = (BASELINE['MAX_POWER_PEAK'] / MAX_POP) * high_pop_areas['POP2010'].sum() * BASELINE['POWER_INSTALLED'] * 1e6
     remaining_power = baseline_power_needed / 1e6
     baseline_power_plants = {}
 
@@ -226,6 +203,7 @@ def create_baseline_map():
             baseline_power_plants[source].append(row)
             remaining_power -= row['Install_MW']
 
+    # Plot power plants using the same style as filtering file
     for source, plants in baseline_power_plants.items():
         color, marker = source_colors.get(source, ('gray', 'o'))
         for plant in plants:
@@ -234,7 +212,6 @@ def create_baseline_map():
                 plant['Longitude'],
                 plant['Latitude'],
                 color=color,
-                label=source.capitalize(),
                 s=size,
                 alpha=0.8,
                 edgecolor='black',
@@ -250,7 +227,7 @@ def create_baseline_map():
             unique_military_bases.append(base)
             seen_bases.add((base["name"], base["latitude"], base["longitude"]))
 
-    # Add military bases to the map with unique identifiers
+    # Define base colors and markers as in filtering file
     base_colors = {
         'Air Force Base': 'red',
         'Army Base': 'green',
@@ -266,6 +243,7 @@ def create_baseline_map():
         'National Guard Base': 'd'  # diamond
     }
 
+    # Plot military bases without name annotations
     for base in unique_military_bases:
         ax_baseline.scatter(
             base["longitude"],
@@ -273,10 +251,11 @@ def create_baseline_map():
             color=base_colors[base['type']],
             marker=base_markers[base['type']],
             s=100,
+            edgecolor='black',
             zorder=4
         )
 
-    # Add legend
+    # Add legend with all elements
     handles = [
         mlines.Line2D([], [], color='darkblue', marker='o', markersize=5, label='Substations', linestyle='None'),
         mlines.Line2D([], [], color='red', label='Power Lines')
@@ -290,24 +269,145 @@ def create_baseline_map():
     ]
 
     ax_baseline.legend(handles=handles, loc='upper left', bbox_to_anchor=(1.05, 1))
+    plt.title("Georgia Energy Infrastructure")
     plt.axis('off')
     st.pyplot(fig_baseline)
 
     return substations_gdf, high_pop_areas, edges, fig_baseline, baseline_power_plants
 
 # Create the baseline map and get the data
-substations_gdf, high_pop_areas, edges, fig_baseline, baseline_power_plants = create_baseline_map()
+with st.spinner("Creating baseline map..."):
+    substations_gdf, high_pop_areas, edges, fig_baseline, baseline_power_plants = create_baseline_map()
 
+def create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, baseline_power_plants):
+    """
+    Creates a pandapower network from the baseline map data and saves it.
+    """
+    # Create an empty pandapower network
+    net = pp.create_empty_network()
+    
+    # Create buses from substations
+    bus_index_map = {}
+    for idx, substation in substations_gdf.iterrows():
+        x, y = substation.geometry.x, substation.geometry.y
+        bus_idx = pp.create_bus(net, vn_kv=500, geodata=(x, y), name=f"Bus_{idx}")
+        bus_index_map[idx] = bus_idx
+    
+    # Create lines between substations
+    for start, end, voltage in edges:
+        if start in bus_index_map and end in bus_index_map:
+            from_bus = bus_index_map[start]
+            to_bus = bus_index_map[end]
+            
+            # Set parameters based on voltage level
+            if voltage >= 500:
+                pp.create_line_from_parameters(
+                    net,
+                    from_bus=from_bus,
+                    to_bus=to_bus,
+                    length_km=haversine(
+                        substations_gdf.iloc[start].geometry.y,
+                        substations_gdf.iloc[start].geometry.x,
+                        substations_gdf.iloc[end].geometry.y,
+                        substations_gdf.iloc[end].geometry.x
+                    ),
+                    r_ohm_per_km=0.01,
+                    x_ohm_per_km=0.25,
+                    c_nf_per_km=12,
+                    max_i_ka=9,  # guessing values here to approximate real-world values
+                    parallel=2      # Added parallel lines for high voltage
+                )
+            else:
+                pp.create_line_from_parameters(
+                    net,
+                    from_bus=from_bus,
+                    to_bus=to_bus,
+                    length_km=haversine(
+                        substations_gdf.iloc[start].geometry.y,
+                        substations_gdf.iloc[start].geometry.x,
+                        substations_gdf.iloc[end].geometry.y,
+                        substations_gdf.iloc[end].geometry.x
+                    ),
+                    r_ohm_per_km=0.1,
+                    x_ohm_per_km=0.4,
+                    c_nf_per_km=9,
+                    max_i_ka=9,  # guess value to achieve overload in 2030
+                    parallel=1      # Single line for lower voltage
+                )
+    
+    # Add generators based on power plants
+    slack_assigned = False
+    for source, plants in baseline_power_plants.items():
+        for plant in plants:
+            # Find nearest bus to plant
+            plant_point = Point(plant['Longitude'], plant['Latitude'])
+            nearest_bus = substations_gdf.distance(plant_point).idxmin()
+            bus_idx = bus_index_map[nearest_bus]
+            
+            # Create generator
+            is_slack = not slack_assigned and source == 'natural gas'
+            pp.create_gen(
+                net,
+                bus=bus_idx,
+                p_mw=plant['Total_MW'],
+                vm_pu=1.0,
+                min_p_mw=0,
+                max_p_mw=plant['Install_MW'],
+                min_q_mvar=-plant['Install_MW'] / 0.85,
+                max_q_mvar=plant['Install_MW'] / 0.85,
+                name=f"{plant['Plant_Name']} ({source})",
+                slack=is_slack,
+                controllable=True
+            )
+            if is_slack:
+                slack_assigned = True
+    
+    # If no slack generator was assigned, assign the first bus as slack
+    if not slack_assigned and len(net.bus) > 0:
+        pp.create_ext_grid(net, bus=0, vm_pu=1.0, va_degree=0.0)
+    
+    # Add loads to high population areas
+    total_population = high_pop_areas['POP2010'].sum()
+    for _, area in high_pop_areas.iterrows():
+        area_point = Point(area['longitude'], area['latitude'])
+        nearest_bus = substations_gdf.distance(area_point).idxmin()
+        bus_idx = bus_index_map[nearest_bus]
+        
+        # Calculate load based on population proportion
+        load_mw = (area['POP2010'] / total_population) * BASELINE['MAX_POWER_PEAK']
+        
+        # Use NAME key for the area name
+        area_name = area['NAME'] if 'NAME' in area else f"Area_{area['POP2010']}"
+        
+        pp.create_load(
+            net,
+            bus=bus_idx,
+            p_mw=load_mw,
+            q_mvar=load_mw * 0.3,  # Assuming power factor of about 0.96
+            name=f"Load_{area_name}"
+        )
+    
+    # Create folder if it doesn't exist
+    os.makedirs("output_pandapower", exist_ok=True)
+    
+    # Save the network
+    pp.to_pickle(net, "output_pandapower/baseline_network.p")
+    st.success("Baseline network saved to output_pandapower/baseline_network.p")
+    
+    return net
 
-# Load the saved network
-net = load_network("output_pandapower/baseline_network.p")
+# Automatically create and save the baseline network
+with st.spinner("Creating and saving network..."):
+    net = create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, baseline_power_plants)
 
 def calculate_line_loading(net):
     pp.runpp(net)
     line_loading = net.res_line[['loading_percent']]
     return line_loading
 
-line_loading = calculate_line_loading(net)
+# Calculate line loading
+with st.spinner("Calculating line loading..."):
+    line_loading = calculate_line_loading(net)
 
 # Create the network graph using NetworkX
 G = create_nxgraph(net, respect_switches=True)
