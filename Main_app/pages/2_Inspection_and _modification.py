@@ -180,6 +180,9 @@ with col_right:
             
             if st.button("Add Line"):
                 try:
+                    # Calculate line cost
+                    line_cost_millions = length_km * 2.5  # $2.5M per km
+                    
                     pp.create_line_from_parameters(
                         net,
                         from_bus=bus1_id,
@@ -191,7 +194,20 @@ with col_right:
                         max_i_ka=2.0,       # Example parameter
                         name=line_id
                     )
+                    
+                    # Add cost information to the line
+                    line_idx = len(net.line) - 1  # Get index of the newly added line
+                    if "cost_million_usd" not in net.line.columns:
+                        net.line["cost_million_usd"] = 0.0
+                    net.line.at[line_idx, "cost_million_usd"] = line_cost_millions
+                    
+                    # Store the cost in session state for sidebar display
+                    if "line_costs" not in st.session_state:
+                        st.session_state.line_costs = {}
+                    st.session_state.line_costs[line_idx] = line_cost_millions
+                    
                     st.success(f"Line '{line_id}' added connecting bus {bus1_id} to bus {bus2_id}.")
+                    st.sidebar.info(f"Line Cost: ${line_cost_millions:.2f} million USD")
                 except Exception as e:
                     st.error(f"Error adding line: {e}")
         
@@ -385,7 +401,24 @@ with col_right:
                 submitted = st.form_submit_button("Add Generator")
             if submitted:
                 try:
-                    pp.create_gen(
+                    # Calculate construction cost based on generator type and capacity
+                    construction_costs = {
+                        "solar": 1588,      # USD per kW
+                        "wind": 1451,       # USD per kW
+                        "natural gas": 820, # USD per kW
+                        "battery": 1205,    # USD per kW
+                        "petroleum": 2084,  # USD per kW
+                        "nuclear": 6317,    # USD per kW
+                        "coal": 3500,       # USD per kW
+                        "pumped storage": 2500  # USD per kW
+                    }
+                    
+                    # Convert MW to kW and calculate cost
+                    capacity_kw = max_p_mw * 1000  # Convert MW to kW
+                    cost_per_kw = construction_costs.get(gen_type, 1000)  # Default if type not found
+                    construction_cost_millions = (capacity_kw * cost_per_kw) / 1000000  # Convert to millions
+                    
+                    gen_idx = pp.create_gen(
                         net,
                         bus=bus_index,
                         p_mw=p_mw,
@@ -398,7 +431,19 @@ with col_right:
                         slack=slack,
                         controllable=controllable
                     )
+                    
+                    # Add construction cost information to the generator
+                    if "construction_cost_million_usd" not in net.gen.columns:
+                        net.gen["construction_cost_million_usd"] = 0.0
+                    net.gen.at[gen_idx, "construction_cost_million_usd"] = construction_cost_millions
+                    
+                    # Store the cost in session state for sidebar display
+                    if "gen_costs" not in st.session_state:
+                        st.session_state.gen_costs = {}
+                    st.session_state.gen_costs[gen_idx] = construction_cost_millions
+                    
                     st.success(f"Generator '{gen_name}' added on bus {bus_index} with active power {p_mw} MW.")
+                    st.sidebar.info(f"Generator Construction Cost: ${construction_cost_millions:.2f} million USD")
                 except Exception as e:
                     st.error(f"Error adding generator: {e}")
         
