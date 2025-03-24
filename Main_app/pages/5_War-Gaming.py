@@ -558,8 +558,10 @@ for line, bases in nearest_bases_to_lines:
         table_data.append({"Base": base, "Distance (km)": distance})
     st.table(pd.DataFrame(table_data))
 
+# Define effect functions before using them
 def small_modular_reactors_effect():
     st.write('Effect for Small Modular Reactors')
+    # Add implementation here
 
 def cyber_attack_effect():
     power_plants_path = r'data/Power_Plants_georgia.geojson'
@@ -596,9 +598,12 @@ def fossil_fuel_outage_effect():
     st.write(power_plants[['Plant_Name', 'PrimSource', 'Total_MW']])
     st.write('Effect for Fossil Fuel Shortage')
 
+# Organize buttons into two sections
+st.header("Mitigation Actions")
 if st.button('Small Modular Reactors'):
     small_modular_reactors_effect()
 
+st.header("Shock Instances")
 if st.button('Cyber Attack'):
     cyber_attack_effect()
 
