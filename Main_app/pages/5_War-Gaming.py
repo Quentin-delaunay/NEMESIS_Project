@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 from pandapower.topology import create_nxgraph
+import subprocess
+
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
@@ -57,7 +59,7 @@ BASELINE['MAX_POWER_PEAK'] = Max_power_peak_pred[years_pred.index(selected_year)
 initial_power_installed = 37786  # MW
 growth_rate = 0.024
 years_since_2024 = selected_year - 2024
-BASELINE['POWER_INSTALLED'] = initial_power_installed * ((1 + growth_rate) ** years_since_2024)
+BASELINE['POWER_INSTALLED'] = initial_power_installed 
 
 source_colors = {
     'nuclear': ('blue', 'o'),
@@ -301,6 +303,15 @@ def create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, bas
             
             # Set parameters based on voltage level
             if voltage >= 500:
+                base_max_i_ka = 3.5  # Appropriate value for 500kV lines
+            else:
+                base_max_i_ka = 2.0  # Lower value for 230kV lines
+            
+            # Adjust max_i_ka based on year
+            years_since_base = selected_year - 2024
+            adjusted_max_i_ka = base_max_i_ka * (1 - years_since_base * 0.03)  # Decrease capacity by 3% per year
+            
+            if voltage >= 500:
                 pp.create_line_from_parameters(
                     net,
                     from_bus=from_bus,
@@ -314,7 +325,7 @@ def create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, bas
                     r_ohm_per_km=0.01,
                     x_ohm_per_km=0.25,
                     c_nf_per_km=12,
-                    max_i_ka=9,  # guessing values here to approximate real-world values
+                    max_i_ka=adjusted_max_i_ka,  # Use adjusted max_i_ka
                     parallel=2      # Added parallel lines for high voltage
                 )
             else:
@@ -331,7 +342,7 @@ def create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, bas
                     r_ohm_per_km=0.1,
                     x_ohm_per_km=0.4,
                     c_nf_per_km=9,
-                    max_i_ka=9,  # guess value to achieve overload in 2030
+                    max_i_ka=adjusted_max_i_ka,  # Use adjusted max_i_ka
                     parallel=1      # Single line for lower voltage
                 )
     
@@ -402,7 +413,7 @@ with st.spinner("Creating and saving network..."):
 
 def calculate_line_loading(net):
     pp.runpp(net)
-    line_loading = net.res_line[['loading_percent']]
+    line_loading = net.res_line[['loading_percent']] 
     return line_loading
 
 # Calculate line loading
