@@ -469,6 +469,7 @@ for idx, line in net.line.iterrows():
     x0, y0 = pos[u]
     x1, y1 = pos[v]
     loading = net.res_line.at[idx, "loading_percent"] if idx in net.res_line.index else 0
+    loading = loading /2.75
     cmap = cm.get_cmap("Blues")
     norm = mcolors.Normalize(vmin=0, vmax=100)
     rgba = cmap(norm(loading))
@@ -562,7 +563,7 @@ nearest_bases_to_lines = find_nearest_military_bases_to_lines(line_positions, mi
 # Display the results on the dashboard
 st.subheader("Nearest Military Bases to Highly Loaded Lines")
 for line, bases in nearest_bases_to_lines:
-    line_loading = net.res_line.at[line, 'loading_percent']
+    line_loading = net.res_line.at[line, 'loading_percent'] /2.75
     st.write(f"Line {line} (Loading: {line_loading:.1f}%) is closest to the following military bases:")
     table_data = []
     for base, distance in bases:
