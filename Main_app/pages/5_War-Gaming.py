@@ -963,6 +963,9 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button('Small Modular Reactors'):
         st.session_state['active_scenario'] = 'smr'
+with col2:
+    if st.button('Add Transmission Line'):
+        st.session_state['active_scenario'] = 'transmission'
 
 st.header("Shock Instances")
 col1, col2 = st.columns(2)
@@ -972,6 +975,15 @@ with col1:
 with col2:
     if st.button('Fossil Fuel Shortage'):
         st.session_state['active_scenario'] = 'fossil'
+
+# Add a reset button with distinctive styling
+st.markdown("---")
+reset_col1, reset_col2, reset_col3 = st.columns([1, 1, 1])
+with reset_col2:
+    if st.button('Reset View', type='primary', use_container_width=True):
+        if 'active_scenario' in st.session_state:
+            del st.session_state['active_scenario']
+        st.experimental_rerun()
 
 # Display the selected scenario
 if 'active_scenario' in st.session_state:
