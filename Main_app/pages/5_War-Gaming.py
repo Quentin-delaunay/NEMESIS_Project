@@ -18,7 +18,7 @@ from pandapower.topology import create_nxgraph
 import subprocess
 
 # Define a scaling factor for line loading visualization
-LINE_LOADING_SCALE_FACTOR = 2.75
+LINE_LOADING_SCALE_FACTOR = 3
 
 st.set_page_config(page_title="War-Gaming", layout="wide")
 st.title("War-Gaming")
@@ -408,7 +408,6 @@ def create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, bas
     
     # Save the network
     pp.to_pickle(net, "output_pandapower/baseline_network.p")
-    st.success("Baseline network saved to output_pandapower/baseline_network.p")
     
     return net
 
@@ -681,7 +680,7 @@ def cyber_attack_effect():
     modified_net.gen.at[largest_gen_idx, 'p_mw'] = largest_gen_max
     modified_net.gen.at[largest_gen_idx, 'controllable'] = False  # Prevent OPF from adjusting
     
-    st.write(f"⚠️ {largest_gen_name} has been compromised by a cyber attack, forcing output from {original_p_mw:.1f} MW to maximum capacity {largest_gen_max:.1f} MW.")
+    st.write(f" {largest_gen_name} has been compromised by a cyber attack, forcing output from {original_p_mw:.1f} MW to maximum capacity {largest_gen_max:.1f} MW.")
     st.write("This attack could potentially overload transmission lines connected to the plant.")
     
     # Run power flow on the modified network
@@ -778,8 +777,8 @@ def fossil_fuel_outage_effect():
         if modified_gen_capacity < total_load:
             shortfall = total_load - modified_gen_capacity
             shortfall_percentage = (shortfall / total_load) * 100
-            st.error(f"⚠️ Generation capacity reduced by {capacity_reduction:.1f} MW ({(capacity_reduction/original_gen_capacity)*100:.1f}%)")
-            st.error(f"⚠️ Energy shortfall of {shortfall:.1f} MW ({shortfall_percentage:.1f}% of demand)")
+            st.error(f" Generation capacity reduced by {capacity_reduction:.1f} MW ({(capacity_reduction/original_gen_capacity)*100:.1f}%)")
+            st.error(f" Energy shortfall of {shortfall:.1f} MW ({shortfall_percentage:.1f}% of demand)")
             st.warning("Load shedding would be required to maintain grid stability.")
         
         # Display the results
