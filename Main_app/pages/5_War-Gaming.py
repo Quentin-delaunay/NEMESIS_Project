@@ -957,6 +957,190 @@ def create_network_heatmap(network):
     
     return fig
 
+def add_transmission_line_effect():
+    # Create a copy of the network
+    modified_net = net.deepcopy()
+    
+    # Find the highest loaded line
+    highest_loaded_line_idx = modified_net.res_line['loading_percent'].idxmax()
+    highest_line_loading = modified_net.res_line.at[highest_loaded_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+    
+    # Get from and to buses of the overloaded line
+    from_bus = modified_net.line.at[highest_loaded_line_idx, 'from_bus']
+    to_bus = modified_net.line.at[highest_loaded_line_idx, 'to_bus']
+    
+    st.write(f"### Adding New Transmission Line")
+    st.write(f"Most critical line identified: Line {highest_loaded_line_idx} (Loading: {highest_line_loading:.1f}%)")
+    st.write(f"This line connects Bus {from_bus} to Bus {to_bus}")
+    
+    # Find alternative route
+    # Strategy: Look for connecting buses one step away from both endpoints
+    # These would create a parallel path for power to flow
+    
+    # 1. Find buses connected to from_bus
+    from_connected = []
+    for idx, line in modified_net.line.iterrows():
+        if line['from_bus'] == from_bus and line['to_bus'] != to_bus:
+            from_connected.append(line['to_bus'])
+        elif line['to_bus'] == from_bus and line['from_bus'] != to_bus:
+            from_connected.append(line['from_bus'])
+    
+    # 2. Find buses connected to to_bus
+    to_connected = []
+    for idx, line in modified_net.line.iterrows():
+        if line['from_bus'] == to_bus and line['to_bus'] != from_bus:
+            to_connected.append(line['to_bus'])
+        elif line['to_bus'] == to_bus and line['from_bus'] != from_bus:
+            to_connected.append(line['from_bus'])
+    
+    # Find potential new connections that would create a parallel path
+    potential_connections = []
+    for bus1 in from_connected:
+        for bus2 in to_connected:
+            # Check if buses are not already directly connected
+            already_connected = False
+            for _, line in modified_net.line.iterrows():
+                if (line['from_bus'] == bus1 and line['to_bus'] == bus2) or \
+                   (line['from_bus'] == bus2 and line['to_bus'] == bus1):
+                    already_connected = True
+                    break
+            
+            if not already_connected and bus1 != bus2:
+                # Get coordinates
+                bus1_x = modified_net.bus_geodata.at[bus1, 'x']
+                bus1_y = modified_net.bus_geodata.at[bus1, 'y']
+                bus2_x = modified_net.bus_geodata.at[bus2, 'x']
+                bus2_y = modified_net.bus_geodata.at[bus2, 'y']
+                
+                # Calculate distance
+                distance = haversine(bus1_y, bus1_x, bus2_y, bus2_x)
+                
+                # Calculate approximate load transfer potential
+                potential = 100 / distance  # Higher potential for shorter lines
+                
+                potential_connections.append((bus1, bus2, distance, potential))
+    
+    # If no optimal parallel path found, look for any potentially beneficial connection
+    if not potential_connections:
+        st.warning("No optimal parallel path found. Looking for any potentially beneficial connection...")
+        
+        # Get buses with high loading or high generation/demand
+        important_buses = set()
+        for idx, line in modified_net.res_line.iterrows():
+            if line['loading_percent'] > 50:  # Look for other moderately loaded lines
+                important_buses.add(modified_net.line.at[idx, 'from_bus'])
+                important_buses.add(modified_net.line.at[idx, 'to_bus'])
+        
+        # Create connections between important buses
+        for bus1 in important_buses:
+            for bus2 in important_buses:
+                if bus1 < bus2:  # Avoid duplicates
+                    # Check if not already connected
+                    already_connected = False
+                    for _, line in modified_net.line.iterrows():
+                        if (line['from_bus'] == bus1 and line['to_bus'] == bus2) or \
+                           (line['from_bus'] == bus2 and line['to_bus'] == bus1):
+                            already_connected = True
+                            break
+                    
+                    if not already_connected:
+                        # Get coordinates
+                        bus1_x = modified_net.bus_geodata.at[bus1, 'x']
+                        bus1_y = modified_net.bus_geodata.at[bus1, 'y']
+                        bus2_x = modified_net.bus_geodata.at[bus2, 'x']
+                        bus2_y = modified_net.bus_geodata.at[bus2, 'y']
+                        
+                        # Calculate distance
+                        distance = haversine(bus1_y, bus1_x, bus2_y, bus2_x)
+                        
+                        # Only consider reasonable distances
+                        if distance < 150:  # km
+                            potential_connections.append((bus1, bus2, distance, 50))  # Default potential
+    
+    if not potential_connections:
+        st.error("No suitable connection found to relieve the overloaded line.")
+        return
+    
+    # Sort by potential benefit (higher potential and shorter distance is better)
+    potential_connections.sort(key=lambda x: (-x[3], x[2]))
+    
+    # Take the best option
+    best_connection = potential_connections[0]
+    new_from_bus, new_to_bus, length_km, _ = best_connection
+    
+    # Calculate cost (typical high-voltage transmission line cost)
+    cost_per_km = 2.5  # $2.5 million per km for 500kV line
+    line_cost = length_km * cost_per_km  # in million USD
+    
+    # Create the new line
+    voltage_level = max(modified_net.bus.at[new_from_bus, 'vn_kv'], modified_net.bus.at[new_to_bus, 'vn_kv'])
+    
+    if voltage_level >= 500:
+        # Parameters for 500kV line
+        pp.create_line_from_parameters(
+            modified_net,
+            from_bus=new_from_bus,
+            to_bus=new_to_bus,
+            length_km=length_km,
+            r_ohm_per_km=0.01,
+            x_ohm_per_km=0.25,
+            c_nf_per_km=12,
+            max_i_ka=3.0,
+            name=f"New 500kV Line"
+        )
+    else:
+        # Parameters for 230kV line
+        pp.create_line_from_parameters(
+            modified_net,
+            from_bus=new_from_bus,
+            to_bus=new_to_bus,
+            length_km=length_km,
+            r_ohm_per_km=0.1,
+            x_ohm_per_km=0.4,
+            c_nf_per_km=9,
+            max_i_ka=1.5,
+            name=f"New 230kV Line"
+        )
+    
+    # Calculate and display the cost
+    st.info(f"Adding {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus}")
+    st.info(f"Estimated cost: ${line_cost:.2f} million USD")
+    
+    # Run power flow with the new line
+    try:
+        # Run power flow calculation to ensure up-to-date results
+        pp.runpp(modified_net, algorithm='nr', init='flat')
+        
+        # Check the impact on the previously overloaded line
+        if highest_loaded_line_idx in modified_net.res_line.index:
+            new_loading = modified_net.res_line.at[highest_loaded_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+            reduction = highest_line_loading - new_loading
+            percent_improvement = (reduction / highest_line_loading) * 100
+            
+            st.success(f"Line {highest_loaded_line_idx} loading reduced from {highest_line_loading:.1f}% to {new_loading:.1f}% ({percent_improvement:.1f}% improvement)")
+            
+            # Show a summary of the action - REMOVED BUS DETAILS
+            st.write("#### New Transmission Line Summary")
+            summary_data = {
+                "Parameter": ["Length", "Voltage", "Cost", "Loading Reduction"],
+                "Value": [
+                    f"{length_km:.1f} km",
+                    f"{voltage_level} kV",
+                    f"${line_cost:.2f} million",
+                    f"{percent_improvement:.1f}%"
+                ]
+            }
+            st.table(pd.DataFrame(summary_data))
+            
+            # Display the results with updated visualizations
+            show_network_comparison(net, modified_net, "Base Network", "With New Transmission Line")
+        else:
+            st.error(f"Unable to find line {highest_loaded_line_idx} in results after adding new transmission line.")
+            
+    except Exception as e:
+        st.error(f"Error calculating power flow with new line: {str(e)}")
+        st.warning("The proposed transmission line may not be viable due to network constraints.")
+
 # Organize buttons into two sections
 st.header("Mitigation Actions")
 col1, col2 = st.columns(2)
@@ -993,3 +1177,5 @@ if 'active_scenario' in st.session_state:
         cyber_attack_effect()
     elif st.session_state['active_scenario'] == 'fossil':
         fossil_fuel_outage_effect()
+    elif st.session_state['active_scenario'] == 'transmission':
+        add_transmission_line_effect()
