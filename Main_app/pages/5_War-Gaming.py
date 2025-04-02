@@ -803,7 +803,7 @@ def show_network_comparison(original_net, modified_net, original_title, modified
     
     with col1:
         st.subheader(original_title)
-        fig1 = create_network_heatmap(original_net)
+        fig1 = create_network_heatmap(original_net, show_overload_annotations=True)
         st.plotly_chart(fig1, use_container_width=True)
         
         # Show key metrics for original network
@@ -815,7 +815,7 @@ def show_network_comparison(original_net, modified_net, original_title, modified
     
     with col2:
         st.subheader(modified_title)
-        fig2 = create_network_heatmap(modified_net)
+        fig2 = create_network_heatmap(modified_net, show_overload_annotations=False)
         st.plotly_chart(fig2, use_container_width=True)
         
         # Show key metrics for modified network
@@ -831,7 +831,7 @@ def show_network_comparison(original_net, modified_net, original_title, modified
         mod_gen = modified_net.res_gen['p_mw'].sum() if not modified_net.res_gen.empty else 0
         st.metric("Total Generation Change", f"{mod_gen - orig_gen:.1f} MW", f"{(mod_gen - orig_gen) / orig_gen * 100:.1f}%")
 
-def create_network_heatmap(network):
+def create_network_heatmap(network, show_overload_annotations=True):
     """Create a heatmap visualization for a network"""
     # Create a NetworkX graph from the network
     G = create_nxgraph(network, respect_switches=True)
@@ -912,8 +912,8 @@ def create_network_heatmap(network):
         )
         edge_traces.append(edge_trace)
         
-        # Add annotations for overloaded lines
-        if scaled_loading > 100:
+        # Add annotations for overloaded lines (only if show_overload_annotations is True)
+        if show_overload_annotations and scaled_loading > 100:
             mid_x = (x0 + x1) / 2
             mid_y = (y0 + y1) / 2
             edge_annotations.append(dict(
@@ -1117,17 +1117,25 @@ def add_transmission_line_effect():
             reduction = highest_line_loading - new_loading
             percent_improvement = (reduction / highest_line_loading) * 100
             
+            # Find the current highest loaded line, which may be different now
+            current_highest_line_idx = modified_net.res_line['loading_percent'].idxmax()
+            current_highest_loading = modified_net.res_line.at[current_highest_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+            
             st.success(f"Line {highest_loaded_line_idx} loading reduced from {highest_line_loading:.1f}% to {new_loading:.1f}% ({percent_improvement:.1f}% improvement)")
+            
+            if current_highest_line_idx != highest_loaded_line_idx:
+                st.info(f"New highest loaded line is now Line {current_highest_line_idx} at {current_highest_loading:.1f}%")
             
             # Show a summary of the action - REMOVED BUS DETAILS
             st.write("#### New Transmission Line Summary")
             summary_data = {
-                "Parameter": ["Length", "Voltage", "Cost", "Loading Reduction"],
+                "Parameter": ["Length", "Voltage", "Cost", "Loading Reduction", "Current Max Loading"],
                 "Value": [
                     f"{length_km:.1f} km",
                     f"{voltage_level} kV",
                     f"${line_cost:.2f} million",
-                    f"{percent_improvement:.1f}%"
+                    f"{percent_improvement:.1f}%",
+                    f"{current_highest_loading:.1f}%"
                 ]
             }
             st.table(pd.DataFrame(summary_data))
