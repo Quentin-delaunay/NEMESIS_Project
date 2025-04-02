@@ -175,6 +175,10 @@ with col_right:
             # Utiliser les coordonnées disponibles pour calculer la longueur de la ligne
             length_km = haversine(y1, x1, y2, x2)
             st.write(f"Calculated line length: {length_km:.2f} km")
+
+            # Calculate and display the estimated line cost
+            line_cost_millions = length_km * 2.5  # $2.5M per km
+            st.write(f"Estimated line cost: ${line_cost_millions:.2f} million")
             
             line_id = st.text_input("Line Name/ID", value="New Line")
             
