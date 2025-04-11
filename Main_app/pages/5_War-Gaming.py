@@ -884,7 +884,7 @@ def apply_smr_effect(input_net):
                 name=f"Small Modular Reactor {i+1}",
                 controllable=True  # Changed to TRUE to allow power adjustment
             )
-            st.write(f"➕ Added SMR at Bus {bus} (300 MW capacity)")
+            st.write(f"Added SMR at Bus {bus} (300 MW capacity)")
     
     # Run power flow to update the network state
     try:
@@ -896,9 +896,9 @@ def apply_smr_effect(input_net):
             if "Small Modular Reactor" in modified_net.gen.at[idx, 'name']:
                 gen_power = modified_net.res_gen.at[idx, 'p_mw'] if idx in modified_net.res_gen.index else 0
                 total_smr_power += gen_power
-                st.write(f"📊 SMR at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
+                st.write(f"SMR at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
         
-        st.write(f"📈 Total SMR contribution: {total_smr_power:.1f} MW")
+        st.write(f"Total SMR contribution: {total_smr_power:.1f} MW")
     except Exception as e:
         st.warning(f"Power flow calculation failed after adding SMRs: {str(e)}")
     
@@ -982,7 +982,7 @@ def apply_new_generators_effect(input_net):
                 name=f"New Generator {i+1} ({selected_gen['type']})",
                 controllable=True
             )
-            st.write(f"🏭 Added {selected_gen['type']} generator at Bus {bus} ({selected_gen['capacity']} MW capacity)")
+            st.write(f"Added {selected_gen['type']} generator at Bus {bus} ({selected_gen['capacity']} MW capacity)")
     
     # Run power flow to update the network state
     try:
@@ -1003,13 +1003,13 @@ def apply_new_generators_effect(input_net):
                 gen_contributions[gen_type] += gen_power
                 total_new_gen_power += gen_power
                 
-                st.write(f"📊 {gen_name} at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
+                st.write(f"{gen_name} at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
         
         # Show total by generator type
         for gen_type, power in gen_contributions.items():
-            st.write(f"📈 Total {gen_type} contribution: {power:.1f} MW")
+            st.write(f"Total {gen_type} contribution: {power:.1f} MW")
             
-        st.write(f"📈 Total new generation contribution: {total_new_gen_power:.1f} MW")
+        st.write(f"Total new generation contribution: {total_new_gen_power:.1f} MW")
     except Exception as e:
         st.warning(f"Power flow calculation failed after adding new generators: {str(e)}")
     
