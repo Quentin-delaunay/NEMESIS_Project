@@ -574,229 +574,7 @@ for line, bases in nearest_bases_to_lines:
         table_data.append({"Base": base, "Distance (km)": distance})
     st.table(pd.DataFrame(table_data))
 
-# Define effect functions before using them
-def small_modular_reactors_effect():
-    # Create a copy of the network
-    modified_net = net.deepcopy()
-    
-    # Add small modular reactors (SMRs) strategically to reduce line loading
-    st.write("### Adding Small Modular Reactors")
-    
-    # Find the 3 highest loaded lines
-    highest_loaded_lines = modified_net.res_line.nlargest(3, 'loading_percent').index
-    
-    # Identify the optimal buses for SMR placement (load side of highly loaded lines)
-    target_buses = []
-    
-    for line_idx in highest_loaded_lines:
-        line = modified_net.line.loc[line_idx]
-        from_bus = line['from_bus']
-        to_bus = line['to_bus']
-        
-        # Get loads at both ends to determine which side needs generation support
-        from_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == from_bus]) if from_bus in modified_net.load.bus.values else 0
-        to_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == to_bus]) if to_bus in modified_net.load.bus.values else 0
-        
-        # Add the bus with higher load to our target list (or both if they're similar)
-        if from_bus_load > 1.2 * to_bus_load:
-            target_buses.append(from_bus)
-        elif to_bus_load > 1.2 * from_bus_load:
-            target_buses.append(to_bus)
-        else:
-            # If loads are comparable, add both buses
-            target_buses.append(from_bus)
-            target_buses.append(to_bus)
-    
-    # If we didn't find enough buses, add some from high load areas
-    if len(target_buses) < 3:
-        # Get buses by load magnitude
-        bus_loading = pd.Series({bus: sum(modified_net.res_load.p_mw[modified_net.load.bus == bus]) 
-                            for bus in modified_net.bus.index if bus in modified_net.load.bus.values})
-        additional_buses = bus_loading.nlargest(3 - len(target_buses)).index
-        target_buses.extend(additional_buses)
-    
-    # Remove duplicates and take at most 3 buses
-    target_buses = list(dict.fromkeys(target_buses))[:3]
-    
-    # Summary of SMR placement strategy
-    st.info("Attempts to decrease line loading by placing small modular reactors at junctions of highly loaded lines.")
-    
-    # Add SMRs to these buses
-    smr_summary = []
-    for i, bus in enumerate(target_buses):
-        # Add a 300MW SMR
-        pp.create_gen(
-            modified_net,
-            bus=bus,
-            p_mw=100,  # Start at 100MW
-            vm_pu=1.0,
-            min_p_mw=15,
-            max_p_mw=500,  # SMR capacity
-            min_q_mvar=-100,
-            max_q_mvar=100,
-            name=f"Small Modular Reactor {i+1}",
-            controllable=True
-        )
-        
-        # Collect info for summary
-        connected_lines = []
-        for line_idx in highest_loaded_lines:
-            line = modified_net.line.loc[line_idx]
-            if bus == line['from_bus'] or bus == line['to_bus']:
-                loading = modified_net.res_line.at[line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
-                connected_lines.append(f"Line {line_idx} ({loading:.1f}%)")
-        
-        smr_summary.append({
-            "SMR": f"SMR {i+1}",
-            "Bus": bus,
-            "Capacity": "300 MW",
-            "Relieves": ", ".join(connected_lines) if connected_lines else "High load area"
-        })
-    
-
-    # Run power flow on the modified network
-    pp.runpp(modified_net)
-    
-    # Display the results
-    show_network_comparison(net, modified_net, "Base Network", "With Small Modular Reactors")
-
-def cyber_attack_effect():
-    # Create a copy of the network
-    modified_net = net.deepcopy()
-    
-    # Find the largest generator
-    largest_gen_idx = modified_net.gen.sort_values(by='max_p_mw', ascending=False).index[0]
-    largest_gen_name = modified_net.gen.at[largest_gen_idx, 'name']
-    largest_gen_bus = modified_net.gen.at[largest_gen_idx, 'bus']
-    largest_gen_max = modified_net.gen.at[largest_gen_idx, 'max_p_mw']
-    
-    # Store original generation level for comparison
-    original_p_mw = modified_net.gen.at[largest_gen_idx, 'p_mw']
-    
-    st.write(f"### Cyber Attack on Power Plant")
-    st.write(f"Target: {largest_gen_name} (Capacity: {largest_gen_max} MW)")
-    
-    # Simulate cyber attack by forcing generator to maximum output
-    modified_net.gen.at[largest_gen_idx, 'p_mw'] = largest_gen_max
-    modified_net.gen.at[largest_gen_idx, 'controllable'] = False  # Prevent OPF from adjusting
-    
-    st.write(f" {largest_gen_name} has been compromised by a cyber attack, forcing output from {original_p_mw:.1f} MW to maximum capacity {largest_gen_max:.1f} MW.")
-    st.write("This attack could potentially overload transmission lines connected to the plant.")
-    
-    # Run power flow on the modified network
-    try:
-        pp.runpp(modified_net)
-        
-        # Check which lines may have been overloaded as a result
-        overloaded_lines = modified_net.res_line[modified_net.res_line.loading_percent/LINE_LOADING_SCALE_FACTOR > 100]
-        if not overloaded_lines.empty:
-            st.error(f"Attack resulted in {len(overloaded_lines)} overloaded transmission lines!")
-            
-            # Get the most severely overloaded line
-            worst_line_idx = overloaded_lines.loading_percent.idxmax()
-            worst_line_loading = overloaded_lines.at[worst_line_idx, 'loading_percent']/LINE_LOADING_SCALE_FACTOR
-            
-            # Identify connected buses
-            from_bus = modified_net.line.at[worst_line_idx, 'from_bus']
-            to_bus = modified_net.line.at[worst_line_idx, 'to_bus']
-            
-            st.write(f"Most critical failure: Line {worst_line_idx} between Bus {from_bus} and Bus {to_bus} is at {worst_line_loading:.1f}% capacity!")
-        
-        # Display the results
-        show_network_comparison(net, modified_net, "Base Network", "After Cyber Attack")
-        
-    except Exception as e:
-        st.error(f"The network couldn't maintain stability after the attack: {str(e)}")
-        st.write("The sudden increase in generation caused a cascading grid failure.")
-        
-        # Show partially computed results if available
-        if hasattr(modified_net, "res_line") and not modified_net.res_line.empty:
-            st.write("### Partial Results Before Grid Collapse")
-            try:
-                fig = create_network_heatmap(modified_net)
-                st.plotly_chart(fig, use_container_width=True)
-            except:
-                st.write("Unable to visualize the unstable grid state.")
-
-def fossil_fuel_outage_effect():
-    # Create a copy of the network
-    modified_net = net.deepcopy()
-    
-    # List of fossil fuel sources and their domestic production percentages
-    fossil_fuel_percentages = {
-        'coal': 0.90,        # 90% of coal is domestic
-        'petroleum': 0.34,   # 34% of petroleum is domestic
-        'natural gas': 0.95  # 95% of natural gas is domestic
-    }
-    
-    st.write("### Fossil Fuel Import Disruption")
-    st.info("This scenario simulates what happens when fossil fuel imports are cut off, limiting generators to only use domestically produced fuel resources.")
-    
-    # Modify all generators based on their type (extracted from name)
-    affected_gens = []
-    for idx in modified_net.gen.index:
-        gen_name = modified_net.gen.at[idx, 'name'].lower()
-        original_p_mw = modified_net.gen.at[idx, 'p_mw']
-        original_max_mw = modified_net.gen.at[idx, 'max_p_mw']
-        
-        # Check if this generator uses fossil fuels
-        adjusted = False
-        for fuel_type, domestic_percent in fossil_fuel_percentages.items():
-            if fuel_type in gen_name:
-                # Adjust the generator output and maximum capacity
-                modified_net.gen.at[idx, 'p_mw'] = original_p_mw * domestic_percent
-                modified_net.gen.at[idx, 'max_p_mw'] = original_max_mw * domestic_percent
-                
-                affected_gens.append({
-                    "Generator": modified_net.gen.at[idx, 'name'],
-                    "Fuel Type": fuel_type.capitalize(),
-                    "Domestic %": f"{domestic_percent*100:.0f}%",
-                    "Original Output": f"{original_p_mw:.1f} MW",
-                    "Reduced Output": f"{modified_net.gen.at[idx, 'p_mw']:.1f} MW"
-                })
-                adjusted = True
-                break
-    
-    # Display affected generators in a table
-    if affected_gens:
-        st.write(f"#### Affected Generators ({len(affected_gens)})")
-        st.table(pd.DataFrame(affected_gens))
-    else:
-        st.write("No fossil fuel generators identified in the network.")
-    
-    # Run power flow on the modified network
-    try:
-        pp.runpp(modified_net)
-        
-        # Check for load shedding required
-        original_gen_capacity = net.gen['max_p_mw'].sum()
-        modified_gen_capacity = modified_net.gen['max_p_mw'].sum() 
-        capacity_reduction = original_gen_capacity - modified_gen_capacity
-        total_load = net.load['p_mw'].sum()
-        
-        if modified_gen_capacity < total_load:
-            shortfall = total_load - modified_gen_capacity
-            shortfall_percentage = (shortfall / total_load) * 100
-            st.error(f" Generation capacity reduced by {capacity_reduction:.1f} MW ({(capacity_reduction/original_gen_capacity)*100:.1f}%)")
-            st.error(f" Energy shortfall of {shortfall:.1f} MW ({shortfall_percentage:.1f}% of demand)")
-            st.warning("Load shedding would be required to maintain grid stability.")
-        
-        # Display the results
-        show_network_comparison(net, modified_net, "Base Network", "During Fossil Fuel Shortage")
-        
-    except Exception as e:
-        st.error(f"The network couldn't maintain stability after fuel shortage: {str(e)}")
-        st.write("This indicates the grid is highly dependent on fossil fuel imports.")
-        
-        # Try to visualize how far it got before failing
-        if hasattr(modified_net, "res_bus") and not modified_net.res_bus.empty:
-            st.write("### Grid State Before Collapse")
-            try:
-                fig = create_network_heatmap(modified_net)
-                st.plotly_chart(fig, use_container_width=True)
-            except:
-                st.write("Unable to visualize the failed grid state.")
-
+# Define all the functions needed for compound effects
 def show_network_comparison(original_net, modified_net, original_title, modified_title):
     """Compare two network states with side-by-side visualizations"""
     col1, col2 = st.columns(2)
@@ -957,9 +735,84 @@ def create_network_heatmap(network, show_overload_annotations=True):
     
     return fig
 
-def add_transmission_line_effect():
+def apply_smr_effect(input_net):
+    """Add small modular reactors to the network and return the modified network"""
     # Create a copy of the network
-    modified_net = net.deepcopy()
+    modified_net = input_net.deepcopy()
+    
+    # Find the 3 highest loaded lines
+    highest_loaded_lines = modified_net.res_line.nlargest(3, 'loading_percent').index
+    
+    # Identify the optimal buses for SMR placement
+    target_buses = []
+    
+    for line_idx in highest_loaded_lines:
+        line = modified_net.line.loc[line_idx]
+        from_bus = line['from_bus']
+        to_bus = line['to_bus']
+        
+        # Get loads at both ends to determine which side needs generation support
+        from_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == from_bus]) if from_bus in modified_net.load.bus.values else 0
+        to_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == to_bus]) if to_bus in modified_net.load.bus.values else 0
+        
+        # Add the bus with higher load to our target list
+        if from_bus_load > 1.2 * to_bus_load:
+            target_buses.append(from_bus)
+        elif to_bus_load > 1.2 * from_bus_load:
+            target_buses.append(to_bus)
+        else:
+            # If loads are comparable, add both buses
+            target_buses.append(from_bus)
+            target_buses.append(to_bus)
+    
+    # If we didn't find enough buses, add some from high load areas
+    if len(target_buses) < 3:
+        # Get buses by load magnitude
+        bus_loading = pd.Series({bus: sum(modified_net.res_load.p_mw[modified_net.load.bus == bus]) 
+                            for bus in modified_net.bus.index if bus in modified_net.load.bus.values})
+        additional_buses = bus_loading.nlargest(3 - len(target_buses)).index
+        target_buses.extend(additional_buses)
+    
+    # Remove duplicates and take at most 3 buses
+    target_buses = list(dict.fromkeys(target_buses))[:3]
+    
+    # Add SMRs to these buses
+    for i, bus in enumerate(target_buses):
+        # Check if an SMR already exists at this bus (for compound effects)
+        existing_smr = False
+        for idx in modified_net.gen.index:
+            if modified_net.gen.at[idx, 'bus'] == bus and "Small Modular Reactor" in modified_net.gen.at[idx, 'name']:
+                existing_smr = True
+                break
+        
+        if not existing_smr:
+            # Add a 300MW SMR
+            pp.create_gen(
+                modified_net,
+                bus=bus,
+                p_mw=100,  # Start at 100MW
+                vm_pu=1.0,
+                min_p_mw=15,
+                max_p_mw=300,  # SMR capacity
+                min_q_mvar=-100,
+                max_q_mvar=100,
+                name=f"Small Modular Reactor {i+1}",
+                controllable=True
+            )
+            st.write(f"➕ Added SMR at Bus {bus} (300 MW capacity)")
+    
+    # Run power flow to update the network state
+    try:
+        pp.runpp(modified_net)
+    except:
+        st.warning("Power flow calculation failed after adding SMRs")
+    
+    return modified_net
+
+def apply_transmission_line_effect(input_net):
+    """Add new transmission line to the network and return the modified network"""
+    # Create a copy of the network
+    modified_net = input_net.deepcopy()
     
     # Find the highest loaded line
     highest_loaded_line_idx = modified_net.res_line['loading_percent'].idxmax()
@@ -969,15 +822,7 @@ def add_transmission_line_effect():
     from_bus = modified_net.line.at[highest_loaded_line_idx, 'from_bus']
     to_bus = modified_net.line.at[highest_loaded_line_idx, 'to_bus']
     
-    st.write(f"### Adding New Transmission Line")
-    st.write(f"Most critical line identified: Line {highest_loaded_line_idx} (Loading: {highest_line_loading:.1f}%)")
-    st.write(f"This line connects Bus {from_bus} to Bus {to_bus}")
-    
     # Find alternative route
-    # Strategy: Look for connecting buses one step away from both endpoints
-    # These would create a parallel path for power to flow
-    
-    # 1. Find buses connected to from_bus
     from_connected = []
     for idx, line in modified_net.line.iterrows():
         if line['from_bus'] == from_bus and line['to_bus'] != to_bus:
@@ -985,7 +830,6 @@ def add_transmission_line_effect():
         elif line['to_bus'] == from_bus and line['from_bus'] != to_bus:
             from_connected.append(line['from_bus'])
     
-    # 2. Find buses connected to to_bus
     to_connected = []
     for idx, line in modified_net.line.iterrows():
         if line['from_bus'] == to_bus and line['to_bus'] != from_bus:
@@ -1022,8 +866,6 @@ def add_transmission_line_effect():
     
     # If no optimal parallel path found, look for any potentially beneficial connection
     if not potential_connections:
-        st.warning("No optimal parallel path found. Looking for any potentially beneficial connection...")
-        
         # Get buses with high loading or high generation/demand
         important_buses = set()
         for idx, line in modified_net.res_line.iterrows():
@@ -1058,8 +900,8 @@ def add_transmission_line_effect():
                             potential_connections.append((bus1, bus2, distance, 50))  # Default potential
     
     if not potential_connections:
-        st.error("No suitable connection found to relieve the overloaded line.")
-        return
+        st.warning("No suitable connection found to relieve the overloaded line.")
+        return modified_net
     
     # Sort by potential benefit (higher potential and shorter distance is better)
     potential_connections.sort(key=lambda x: (-x[3], x[2]))
@@ -1068,9 +910,13 @@ def add_transmission_line_effect():
     best_connection = potential_connections[0]
     new_from_bus, new_to_bus, length_km, _ = best_connection
     
-    # Calculate cost (typical high-voltage transmission line cost)
-    cost_per_km = 2.5  # $2.5 million per km for 500kV line
-    line_cost = length_km * cost_per_km  # in million USD
+    # Check if this line already exists (for compound effects)
+    for idx, line in modified_net.line.iterrows():
+        if (line['from_bus'] == new_from_bus and line['to_bus'] == new_to_bus) or \
+           (line['from_bus'] == new_to_bus and line['to_bus'] == new_from_bus):
+            if "New" in str(line.get('name', '')):
+                st.write(f" A new transmission line already exists between Bus {new_from_bus} and Bus {new_to_bus}")
+                return modified_net
     
     # Create the new line
     voltage_level = max(modified_net.bus.at[new_from_bus, 'vn_kv'], modified_net.bus.at[new_to_bus, 'vn_kv'])
@@ -1102,88 +948,255 @@ def add_transmission_line_effect():
             name=f"New 230kV Line"
         )
     
-    # Calculate and display the cost
-    st.info(f"Adding {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus}")
-    st.info(f"Estimated cost: ${line_cost:.2f} million USD")
+    st.write(f"➕ Added {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus}")
     
     # Run power flow with the new line
     try:
-        # Run power flow calculation to ensure up-to-date results
-        pp.runpp(modified_net, algorithm='nr', init='flat')
-        
-        # Check the impact on the previously overloaded line
-        if highest_loaded_line_idx in modified_net.res_line.index:
-            new_loading = modified_net.res_line.at[highest_loaded_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
-            reduction = highest_line_loading - new_loading
-            percent_improvement = (reduction / highest_line_loading) * 100
-            
-            # Find the current highest loaded line, which may be different now
-            current_highest_line_idx = modified_net.res_line['loading_percent'].idxmax()
-            current_highest_loading = modified_net.res_line.at[current_highest_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
-            
-            st.success(f"Line {highest_loaded_line_idx} loading reduced from {highest_line_loading:.1f}% to {new_loading:.1f}% ({percent_improvement:.1f}% improvement)")
-            
-            if current_highest_line_idx != highest_loaded_line_idx:
-                st.info(f"New highest loaded line is now Line {current_highest_line_idx} at {current_highest_loading:.1f}%")
-            
-            # Show a summary of the action - REMOVED BUS DETAILS
-            st.write("#### New Transmission Line Summary")
-            summary_data = {
-                "Parameter": ["Length", "Voltage", "Cost", "Loading Reduction", "Current Max Loading"],
-                "Value": [
-                    f"{length_km:.1f} km",
-                    f"{voltage_level} kV",
-                    f"${line_cost:.2f} million",
-                    f"{percent_improvement:.1f}%",
-                    f"{current_highest_loading:.1f}%"
-                ]
-            }
-            st.table(pd.DataFrame(summary_data))
-            
-            # Display the results with updated visualizations
-            show_network_comparison(net, modified_net, "Base Network", "With New Transmission Line")
-        else:
-            st.error(f"Unable to find line {highest_loaded_line_idx} in results after adding new transmission line.")
-            
-    except Exception as e:
-        st.error(f"Error calculating power flow with new line: {str(e)}")
-        st.warning("The proposed transmission line may not be viable due to network constraints.")
+        pp.runpp(modified_net)
+    except:
+        st.warning("Power flow calculation failed after adding new transmission line")
+    
+    return modified_net
 
-# Organize buttons into two sections
+def apply_cyber_attack_effect(input_net):
+    """
+    Apply cyber attack effect to the network - targets the largest generator
+    by forcing it to operate at maximum capacity, simulating a targeted attack 
+    on a critical power plant's control systems.
+    """
+    # Create a copy of the network
+    modified_net = input_net.deepcopy()
+    
+    # Track statistics
+    affected_generators = 0
+    total_generators = len(modified_net.gen)
+    total_mw_increase = 0
+    
+    # Store original generation for reporting
+    original_total_mw = modified_net.gen['p_mw'].sum()
+    
+    # Find the largest generator based on maximum capacity
+    if len(modified_net.gen) > 0:
+        # Create a dataframe with generator index and max capacity
+        gen_capacities = pd.DataFrame({
+            'index': modified_net.gen.index,
+            'max_p_mw': modified_net.gen['max_p_mw'],
+            'p_mw': modified_net.gen['p_mw']
+        })
+        
+        # Sort by max_p_mw in descending order and get the largest generator
+        gen_capacities = gen_capacities.sort_values('max_p_mw', ascending=False)
+        largest_gen_idx = gen_capacities.iloc[0]['index']
+        
+        # Get generator details
+        gen_name = modified_net.gen.at[largest_gen_idx, 'name']
+        original_p_mw = modified_net.gen.at[largest_gen_idx, 'p_mw']
+        max_p_mw = modified_net.gen.at[largest_gen_idx, 'max_p_mw']
+        
+        # Only modify if not already at maximum capacity
+        if original_p_mw < max_p_mw:
+            # Force generator to maximum output
+            modified_net.gen.at[largest_gen_idx, 'p_mw'] = max_p_mw
+            modified_net.gen.at[largest_gen_idx, 'controllable'] = False  # Prevent OPF from adjusting
+            
+            # Update counters
+            affected_generators = 1
+            total_mw_increase = max_p_mw - original_p_mw
+            
+            st.write(f" Cyber attack on {gen_name}: output forced from {original_p_mw:.1f} MW to maximum {max_p_mw:.1f} MW")
+    
+    # Report summary statistics
+    new_total_mw = modified_net.gen['p_mw'].sum()
+    percent_increase = ((new_total_mw - original_total_mw) / original_total_mw) * 100 if original_total_mw > 0 else 0
+    
+    st.write(f"### Cyber Attack Summary:")
+    st.write(f"- Total generators: {total_generators}")
+    st.write(f"- Affected generators: {affected_generators} ({affected_generators/total_generators*100:.1f}%)")
+    st.write(f"- Total MW increase: {total_mw_increase:.2f} MW ({percent_increase:.1f}%)")
+    
+    # Run power flow on the modified network
+    try:
+        pp.runpp(modified_net)
+    except Exception as e:
+        st.warning(f"Power flow calculation failed after cyber attack - grid may be unstable: {str(e)}")
+        st.error("The cyber attack has caused the grid to collapse!")
+    
+    return modified_net
+
+def apply_fossil_fuel_effect(input_net):
+    """Apply fossil fuel shortage effect to the network and return the modified network"""
+    # Create a copy of the network
+    modified_net = input_net.deepcopy()
+    
+    # List of fossil fuel sources and their domestic production percentages
+    fossil_fuel_percentages = {
+        'coal': 0.90,        # 90% of coal is domestic
+        'petroleum': 0.34,   # 34% of petroleum is domestic
+        'natural gas': 0.95  # 95% of natural gas is domestic
+    }
+    
+    # Modify all generators based on their type (extracted from name)
+    affected_count = 0
+    for idx in modified_net.gen.index:
+        gen_name = modified_net.gen.at[idx, 'name'].lower()
+        original_p_mw = modified_net.gen.at[idx, 'p_mw']
+        original_max_mw = modified_net.gen.at[idx, 'max_p_mw']
+        
+        # Check if this generator uses fossil fuels
+        for fuel_type, domestic_percent in fossil_fuel_percentages.items():
+            if fuel_type in gen_name:
+                # Adjust the generator output and maximum capacity
+                modified_net.gen.at[idx, 'p_mw'] = original_p_mw * domestic_percent
+                modified_net.gen.at[idx, 'max_p_mw'] = original_max_mw * domestic_percent
+                affected_count += 1
+                break
+    
+    st.write(f" Fossil fuel shortage affecting {affected_count} generators, reducing their output to domestic supply levels")
+    
+    # Run power flow on the modified network
+    try:
+        pp.runpp(modified_net)
+    except:
+        st.warning("Power flow calculation failed after fossil fuel shortage - grid may be unstable")
+    
+    return modified_net
+
+def apply_compound_effects(mitigations, shocks):
+    """Apply multiple mitigation and shock effects to the network in sequence"""
+    # Start with a copy of the original network
+    modified_net = net.deepcopy()
+    st.subheader("Compound Effects Analysis")
+    
+    # Apply mitigations first
+    if mitigations:
+        st.write("### Applied Mitigation Strategies")
+        for mitigation in mitigations:
+            if mitigation == 'smr':
+                modified_net = apply_smr_effect(modified_net)
+            elif mitigation == 'transmission':
+                modified_net = apply_transmission_line_effect(modified_net)
+    
+    # Then apply shocks to the mitigated (or original) network
+    if shocks:
+        st.write("### Applied Shock Events")
+        for shock in shocks:
+            if shock == 'cyber':
+                modified_net = apply_cyber_attack_effect(modified_net)
+            elif shock == 'fossil':
+                modified_net = apply_fossil_fuel_effect(modified_net)
+    
+    # Try to run power flow to see the final result
+    try:
+        pp.runpp(modified_net)
+        
+        # Show the final network state compared to baseline
+        show_network_comparison(net, modified_net, "Base Network", "After All Effects")
+        
+        # Show summary statistics
+        st.subheader("Summary Impact")
+        
+        # Calculate important metrics for comparison
+        base_max_loading = net.res_line['loading_percent'].max() / LINE_LOADING_SCALE_FACTOR
+        modified_max_loading = modified_net.res_line['loading_percent'].max() / LINE_LOADING_SCALE_FACTOR
+        
+        base_overloaded = len(net.res_line[net.res_line['loading_percent'] / LINE_LOADING_SCALE_FACTOR > 100])
+        modified_overloaded = len(modified_net.res_line[modified_net.res_line['loading_percent'] / LINE_LOADING_SCALE_FACTOR > 100])
+        
+        base_gen = net.res_gen['p_mw'].sum() if not net.res_gen.empty else 0
+        modified_gen = modified_net.res_gen['p_mw'].sum() if not modified_net.res_gen.empty else 0
+        
+        # Display key metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Max Line Loading", 
+                     f"{modified_max_loading:.1f}%", 
+                     f"{modified_max_loading - base_max_loading:.1f}%")
+        
+        with col2:
+            st.metric("Overloaded Lines", 
+                     f"{modified_overloaded}", 
+                     f"{modified_overloaded - base_overloaded}")
+        
+        with col3:
+            st.metric("Total Generation", 
+                     f"{modified_gen:.1f} MW", 
+                     f"{modified_gen - base_gen:.1f} MW")
+        
+    except Exception as e:
+        st.error(f"Network collapsed under combined effects: {str(e)}")
+        st.warning("The combination of shocks and mitigations led to an unstable grid condition.")
+
+# Initialize the state variables if they don't exist
+if 'active_mitigations' not in st.session_state:
+    st.session_state['active_mitigations'] = []
+if 'active_shocks' not in st.session_state:
+    st.session_state['active_shocks'] = []
+
+# Mitigation Actions section with toggle buttons
 st.header("Mitigation Actions")
 col1, col2 = st.columns(2)
 with col1:
-    if st.button('Small Modular Reactors'):
-        st.session_state['active_scenario'] = 'smr'
-with col2:
-    if st.button('Add Transmission Line'):
-        st.session_state['active_scenario'] = 'transmission'
+    smr_active = 'smr' in st.session_state['active_mitigations']
+    if st.button('Small Modular Reactors', 
+                 type='primary' if smr_active else 'secondary'):
+        if smr_active:
+            st.session_state['active_mitigations'].remove('smr')
+        else:
+            st.session_state['active_mitigations'].append('smr')
+        st.rerun()  # Force a rerun to update button appearance
 
+with col2:
+    transmission_active = 'transmission' in st.session_state['active_mitigations']
+    if st.button('Add Transmission Line', 
+                 type='primary' if transmission_active else 'secondary'):
+        if transmission_active:
+            st.session_state['active_mitigations'].remove('transmission')
+        else:
+            st.session_state['active_mitigations'].append('transmission')
+        st.rerun()
+
+# Shock Instances section with toggle buttons
 st.header("Shock Instances")
 col1, col2 = st.columns(2)
 with col1:
-    if st.button('Cyber Attack'):
-        st.session_state['active_scenario'] = 'cyber'
+    cyber_active = 'cyber' in st.session_state['active_shocks']
+    if st.button('Cyber Attack', 
+                type='primary' if cyber_active else 'secondary'):
+        if cyber_active:
+            st.session_state['active_shocks'].remove('cyber')
+        else:
+            st.session_state['active_shocks'].append('cyber')
+        st.rerun()
+
 with col2:
-    if st.button('Fossil Fuel Shortage'):
-        st.session_state['active_scenario'] = 'fossil'
+    fossil_active = 'fossil' in st.session_state['active_shocks']
+    if st.button('Fossil Fuel Shortage', 
+                type='primary' if fossil_active else 'secondary'):
+        if fossil_active:
+            st.session_state['active_shocks'].remove('fossil')
+        else:
+            st.session_state['active_shocks'].append('fossil')
+        st.rerun()
+
+# Status area to show what's active
+if st.session_state['active_mitigations'] or st.session_state['active_shocks']:
+    active_count = len(st.session_state['active_mitigations']) + len(st.session_state['active_shocks'])
+    st.info(f"Total active scenarios: {active_count}")
+    
+    if st.session_state['active_mitigations']:
+        st.write("Active mitigations:", ", ".join(st.session_state['active_mitigations']))
+    if st.session_state['active_shocks']:
+        st.write("Active shocks:", ", ".join(st.session_state['active_shocks']))
 
 # Add a reset button with distinctive styling
 st.markdown("---")
 reset_col1, reset_col2, reset_col3 = st.columns([1, 1, 1])
 with reset_col2:
-    if st.button('Reset View', type='primary', use_container_width=True):
-        if 'active_scenario' in st.session_state:
-            del st.session_state['active_scenario']
-        st.experimental_rerun()
+    if st.button('Reset All Scenarios', type='primary', use_container_width=True):
+        st.session_state['active_mitigations'] = []
+        st.session_state['active_shocks'] = []
+        st.rerun()
 
-# Display the selected scenario
-if 'active_scenario' in st.session_state:
-    if st.session_state['active_scenario'] == 'smr':
-        small_modular_reactors_effect()
-    elif st.session_state['active_scenario'] == 'cyber':
-        cyber_attack_effect()
-    elif st.session_state['active_scenario'] == 'fossil':
-        fossil_fuel_outage_effect()
-    elif st.session_state['active_scenario'] == 'transmission':
-        add_transmission_line_effect()
+# Apply all active scenarios together
+if st.session_state['active_mitigations'] or st.session_state['active_shocks']:
+    apply_compound_effects(st.session_state['active_mitigations'], st.session_state['active_shocks'])
