@@ -590,6 +590,11 @@ def show_network_comparison(original_net, modified_net, original_title, modified
             overloaded = len(original_net.res_line[original_net.res_line['loading_percent']/ LINE_LOADING_SCALE_FACTOR > 100])
             st.metric("Max Line Loading", f"{max_loading/ LINE_LOADING_SCALE_FACTOR:.1f}%")
             st.metric("Overloaded Lines", overloaded)
+        
+        # Show original generation details
+        if hasattr(original_net, "res_gen") and not original_net.res_gen.empty:
+            orig_gen = original_net.res_gen['p_mw'].sum()
+            st.metric("Total Generation", f"{orig_gen:.1f} MW")
     
     with col2:
         st.subheader(modified_title)
@@ -602,12 +607,92 @@ def show_network_comparison(original_net, modified_net, original_title, modified
             overloaded = len(modified_net.res_line[modified_net.res_line['loading_percent']/ LINE_LOADING_SCALE_FACTOR > 100])
             st.metric("Max Line Loading", f"{max_loading/ LINE_LOADING_SCALE_FACTOR:.1f}%")
             st.metric("Overloaded Lines", overloaded)
+        
+        # Show modified generation details
+        if hasattr(modified_net, "res_gen") and not modified_net.res_gen.empty:
+            mod_gen = modified_net.res_gen['p_mw'].sum()
+            st.metric("Total Generation", f"{mod_gen:.1f} MW")
     
-    # Show generation difference
+    # Show generation difference with more details
     if hasattr(original_net, "res_gen") and hasattr(modified_net, "res_gen"):
+        st.subheader("Generation Details")
+        
+        # Calculate total generation for original and modified networks
         orig_gen = original_net.res_gen['p_mw'].sum() if not original_net.res_gen.empty else 0
         mod_gen = modified_net.res_gen['p_mw'].sum() if not modified_net.res_gen.empty else 0
-        st.metric("Total Generation Change", f"{mod_gen - orig_gen:.1f} MW", f"{(mod_gen - orig_gen) / orig_gen * 100:.1f}%")
+        
+        # Display the total generation change
+        st.metric("Total Generation Change", 
+                 f"{mod_gen - orig_gen:.1f} MW", 
+                 f"{(mod_gen - orig_gen) / orig_gen * 100:.1f}%" if orig_gen > 0 else "N/A")
+        
+        # Create a detailed breakdown by generator type
+        st.write("### Generation Breakdown by Type")
+        
+        # Identify generators in the modified network
+        smr_generators = []
+        new_generators = {}  # Dict to store different generator types
+        original_generators = []
+        
+        for idx in modified_net.gen.index:
+            gen_name = modified_net.gen.at[idx, 'name']
+            if "Small Modular Reactor" in gen_name:
+                smr_generators.append(idx)
+            elif "New Generator" in gen_name:
+                # Extract the generator type from name (e.g., "New Generator 1 (natural gas)")
+                gen_type = gen_name.split('(')[-1].split(')')[0] if '(' in gen_name else "other"
+                if gen_type not in new_generators:
+                    new_generators[gen_type] = []
+                new_generators[gen_type].append(idx)
+            elif idx in original_net.gen.index:
+                original_generators.append(idx)
+        
+        # Calculate SMR contribution
+        smr_gen = 0
+        if smr_generators and hasattr(modified_net, "res_gen"):
+            for idx in smr_generators:
+                if idx in modified_net.res_gen.index:
+                    smr_gen += modified_net.res_gen.at[idx, 'p_mw']
+        
+        # Calculate contribution from each new generator type
+        new_gen_contributions = {}
+        total_new_gen = 0
+        for gen_type, generator_indices in new_generators.items():
+            type_contribution = 0
+            for idx in generator_indices:
+                if idx in modified_net.res_gen.index:
+                    type_contribution += modified_net.res_gen.at[idx, 'p_mw']
+            new_gen_contributions[gen_type] = type_contribution
+            total_new_gen += type_contribution
+        
+        # Calculate change in original generators
+        orig_gens_before = 0
+        orig_gens_after = 0
+        
+        for idx in original_generators:
+            if idx in original_net.res_gen.index:
+                orig_gens_before += original_net.res_gen.at[idx, 'p_mw']
+            if idx in modified_net.res_gen.index:
+                orig_gens_after += modified_net.res_gen.at[idx, 'p_mw']
+        
+        # Display breakdown in columns
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("SMR Generation", f"{smr_gen:.1f} MW")
+            st.metric("Original Generators (Before)", f"{orig_gens_before:.1f} MW")
+        
+        with col2:
+            # Display each new generator type contribution
+            for gen_type, contribution in new_gen_contributions.items():
+                st.metric(f"{gen_type.capitalize()} Generation", f"{contribution:.1f} MW")
+            st.metric("Original Generators (After)", f"{orig_gens_after:.1f} MW", 
+                     f"{(orig_gens_after - orig_gens_before) / orig_gens_before * 100:.1f}%" if orig_gens_before > 0 else "N/A")
+            
+        with col3:
+            st.metric("Total New Generation", f"{(smr_gen + total_new_gen):.1f} MW")
+            st.metric("Change from Original", f"{(mod_gen - orig_gen):.1f} MW", 
+                     f"{(mod_gen - orig_gen) / orig_gen * 100:.1f}%" if orig_gen > 0 else "N/A")
 
 def create_network_heatmap(network, show_overload_annotations=True):
     """Create a heatmap visualization for a network"""
@@ -797,15 +882,136 @@ def apply_smr_effect(input_net):
                 min_q_mvar=-100,
                 max_q_mvar=100,
                 name=f"Small Modular Reactor {i+1}",
-                controllable=True
+                controllable=True  # Changed to TRUE to allow power adjustment
             )
             st.write(f"➕ Added SMR at Bus {bus} (300 MW capacity)")
     
     # Run power flow to update the network state
     try:
         pp.runpp(modified_net)
-    except:
-        st.warning("Power flow calculation failed after adding SMRs")
+        
+        # Calculate and display actual power contribution from new SMRs
+        total_smr_power = 0
+        for idx in modified_net.gen.index:
+            if "Small Modular Reactor" in modified_net.gen.at[idx, 'name']:
+                gen_power = modified_net.res_gen.at[idx, 'p_mw'] if idx in modified_net.res_gen.index else 0
+                total_smr_power += gen_power
+                st.write(f"📊 SMR at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
+        
+        st.write(f"📈 Total SMR contribution: {total_smr_power:.1f} MW")
+    except Exception as e:
+        st.warning(f"Power flow calculation failed after adding SMRs: {str(e)}")
+    
+    return modified_net
+
+def apply_new_generators_effect(input_net):
+    """Add new generators (with preference for natural gas and coal) to the network and return the modified network"""
+    # Create a copy of the network
+    modified_net = input_net.deepcopy()
+    
+    # Find the 3 highest loaded lines
+    highest_loaded_lines = modified_net.res_line.nlargest(3, 'loading_percent').index
+    
+    # Identify the optimal buses for generator placement
+    target_buses = []
+    
+    for line_idx in highest_loaded_lines:
+        line = modified_net.line.loc[line_idx]
+        from_bus = line['from_bus']
+        to_bus = line['to_bus']
+        
+        # Get loads at both ends to determine which side needs generation support
+        from_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == from_bus]) if from_bus in modified_net.load.bus.values else 0
+        to_bus_load = sum(modified_net.res_load.p_mw[modified_net.load.bus == to_bus]) if to_bus in modified_net.load.bus.values else 0
+        
+        # Add the bus with higher load to our target list
+        if from_bus_load > 1.2 * to_bus_load:
+            target_buses.append(from_bus)
+        elif to_bus_load > 1.2 * from_bus_load:
+            target_buses.append(to_bus)
+        else:
+            # If loads are comparable, add both buses
+            target_buses.append(from_bus)
+            target_buses.append(to_bus)
+    
+    # If we didn't find enough buses, add some from high load areas
+    if len(target_buses) < 3:
+        # Get buses by load magnitude
+        bus_loading = pd.Series({bus: sum(modified_net.res_load.p_mw[modified_net.load.bus == bus]) 
+                            for bus in modified_net.bus.index if bus in modified_net.load.bus.values})
+        additional_buses = bus_loading.nlargest(3 - len(target_buses)).index
+        target_buses.extend(additional_buses)
+    
+    # Remove duplicates and take at most 3 buses
+    target_buses = list(dict.fromkeys(target_buses))[:3]
+    
+    # Generator types with their capacities and properties
+    # Preference is given to natural gas and coal as they're the most independent resources in the US
+    generator_types = [
+        {"type": "natural gas", "capacity": 250, "min_output": 20, "pref_weight": 0.5},  # High preference
+        {"type": "coal", "capacity": 300, "min_output": 30, "pref_weight": 0.3},         # Medium-high preference
+        {"type": "nuclear", "capacity": 400, "min_output": 100, "pref_weight": 0.1},     # Low preference
+        {"type": "solar", "capacity": 150, "min_output": 0, "pref_weight": 0.1}          # Low preference
+    ]
+    
+    # Add generators to these buses
+    for i, bus in enumerate(target_buses):
+        # Choose generator type - prefer natural gas and coal (using weights)
+        import random
+        weights = [gen["pref_weight"] for gen in generator_types]
+        selected_gen = random.choices(generator_types, weights=weights, k=1)[0]
+        
+        # Check if a generator already exists at this bus (for compound effects)
+        existing_generator = False
+        for idx in modified_net.gen.index:
+            if modified_net.gen.at[idx, 'bus'] == bus and "New Generator" in modified_net.gen.at[idx, 'name']:
+                existing_generator = True
+                break
+        
+        if not existing_generator:
+            # Add a new generator
+            pp.create_gen(
+                modified_net,
+                bus=bus,
+                p_mw=selected_gen["min_output"],  # Start at minimum output
+                vm_pu=1.0,
+                min_p_mw=selected_gen["min_output"],
+                max_p_mw=selected_gen["capacity"],
+                min_q_mvar=-selected_gen["capacity"] / 3,
+                max_q_mvar=selected_gen["capacity"] / 3,
+                name=f"New Generator {i+1} ({selected_gen['type']})",
+                controllable=True
+            )
+            st.write(f"🏭 Added {selected_gen['type']} generator at Bus {bus} ({selected_gen['capacity']} MW capacity)")
+    
+    # Run power flow to update the network state
+    try:
+        pp.runpp(modified_net)
+        
+        # Calculate and display actual power contribution from new generators by type
+        gen_contributions = {}
+        total_new_gen_power = 0
+        
+        for idx in modified_net.gen.index:
+            if "New Generator" in modified_net.gen.at[idx, 'name']:
+                gen_power = modified_net.res_gen.at[idx, 'p_mw'] if idx in modified_net.res_gen.index else 0
+                gen_name = modified_net.gen.at[idx, 'name']
+                gen_type = gen_name.split('(')[-1].split(')')[0] if '(' in gen_name else "unknown"
+                
+                if gen_type not in gen_contributions:
+                    gen_contributions[gen_type] = 0
+                gen_contributions[gen_type] += gen_power
+                total_new_gen_power += gen_power
+                
+                st.write(f"📊 {gen_name} at Bus {modified_net.gen.at[idx, 'bus']} contributing {gen_power:.1f} MW")
+        
+        # Show total by generator type
+        for gen_type, power in gen_contributions.items():
+            st.write(f"📈 Total {gen_type} contribution: {power:.1f} MW")
+            
+        st.write(f"📈 Total new generation contribution: {total_new_gen_power:.1f} MW")
+    except Exception as e:
+        st.warning(f"Power flow calculation failed after adding new generators: {str(e)}")
     
     return modified_net
 
@@ -1067,6 +1273,13 @@ def apply_compound_effects(mitigations, shocks):
     modified_net = net.deepcopy()
     st.subheader("Compound Effects Analysis")
     
+    # Run initial power flow on the original network to ensure we have a valid baseline
+    try:
+        pp.runpp(net)
+    except Exception as e:
+        st.error(f"Error running initial power flow on original network: {str(e)}")
+        return
+    
     # Apply mitigations first
     if mitigations:
         st.write("### Applied Mitigation Strategies")
@@ -1075,6 +1288,8 @@ def apply_compound_effects(mitigations, shocks):
                 modified_net = apply_smr_effect(modified_net)
             elif mitigation == 'transmission':
                 modified_net = apply_transmission_line_effect(modified_net)
+            elif mitigation == 'new_generators':
+                modified_net = apply_new_generators_effect(modified_net)
     
     # Then apply shocks to the mitigated (or original) network
     if shocks:
@@ -1085,45 +1300,15 @@ def apply_compound_effects(mitigations, shocks):
             elif shock == 'fossil':
                 modified_net = apply_fossil_fuel_effect(modified_net)
     
-    # Try to run power flow to see the final result
+    # Run power flow one more time to ensure results are up-to-date
+    st.write("### Running final power flow calculation...")
     try:
         pp.runpp(modified_net)
-        
         # Show the final network state compared to baseline
         show_network_comparison(net, modified_net, "Base Network", "After All Effects")
         
-        # Show summary statistics
-        st.subheader("Summary Impact")
-        
-        # Calculate important metrics for comparison
-        base_max_loading = net.res_line['loading_percent'].max() / LINE_LOADING_SCALE_FACTOR
-        modified_max_loading = modified_net.res_line['loading_percent'].max() / LINE_LOADING_SCALE_FACTOR
-        
-        base_overloaded = len(net.res_line[net.res_line['loading_percent'] / LINE_LOADING_SCALE_FACTOR > 100])
-        modified_overloaded = len(modified_net.res_line[modified_net.res_line['loading_percent'] / LINE_LOADING_SCALE_FACTOR > 100])
-        
-        base_gen = net.res_gen['p_mw'].sum() if not net.res_gen.empty else 0
-        modified_gen = modified_net.res_gen['p_mw'].sum() if not modified_net.res_gen.empty else 0
-        
-        # Display key metrics
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Max Line Loading", 
-                     f"{modified_max_loading:.1f}%", 
-                     f"{modified_max_loading - base_max_loading:.1f}%")
-        
-        with col2:
-            st.metric("Overloaded Lines", 
-                     f"{modified_overloaded}", 
-                     f"{modified_overloaded - base_overloaded}")
-        
-        with col3:
-            st.metric("Total Generation", 
-                     f"{modified_gen:.1f} MW", 
-                     f"{modified_gen - base_gen:.1f} MW")
-        
     except Exception as e:
-        st.error(f"Network collapsed under combined effects: {str(e)}")
+        st.error(f"Network analysis failed: {str(e)}")
         st.warning("The combination of shocks and mitigations led to an unstable grid condition.")
 
 # Initialize the state variables if they don't exist
@@ -1134,7 +1319,7 @@ if 'active_shocks' not in st.session_state:
 
 # Mitigation Actions section with toggle buttons
 st.header("Mitigation Actions")
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     smr_active = 'smr' in st.session_state['active_mitigations']
     if st.button('Small Modular Reactors', 
@@ -1153,6 +1338,16 @@ with col2:
             st.session_state['active_mitigations'].remove('transmission')
         else:
             st.session_state['active_mitigations'].append('transmission')
+        st.rerun()
+        
+with col3:
+    new_generators_active = 'new_generators' in st.session_state['active_mitigations']
+    if st.button('Add Generators', 
+                 type='primary' if new_generators_active else 'secondary'):
+        if new_generators_active:
+            st.session_state['active_mitigations'].remove('new_generators')
+        else:
+            st.session_state['active_mitigations'].append('new_generators')
         st.rerun()
 
 # Shock Instances section with toggle buttons
