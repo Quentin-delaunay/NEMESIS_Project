@@ -85,7 +85,7 @@ def haversine(lat1, lon1, lat2, lon2):
     dLon = math.radians(lon2 - lon1)
     lat1 = math.radians(lat1)
     lat2 = math.radians(lat2)
-    a = math.sin(dLat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) ** 2
+    a = math.sin(dLat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) + math.sin(dLon / 2) ** 2
     c = 2 * math.asin(sqrt(a))
     return R * c
 
@@ -862,6 +862,7 @@ def apply_smr_effect(input_net):
     target_buses = list(dict.fromkeys(target_buses))[:3]
     
     # Add SMRs to these buses
+    total_cost_millions = 0
     for i, bus in enumerate(target_buses):
         # Check if an SMR already exists at this bus (for compound effects)
         existing_smr = False
@@ -871,6 +872,12 @@ def apply_smr_effect(input_net):
                 break
         
         if not existing_smr:
+            # Calculate SMR construction cost
+            smr_capacity_kw = 300 * 1000  # 300 MW converted to kW
+            smr_cost_per_kw = 6500  # Estimated cost per kW for SMRs
+            smr_cost_millions = (smr_capacity_kw * smr_cost_per_kw) / 1000000
+            total_cost_millions += smr_cost_millions
+            
             # Add a 300MW SMR
             pp.create_gen(
                 modified_net,
@@ -884,7 +891,10 @@ def apply_smr_effect(input_net):
                 name=f"Small Modular Reactor {i+1}",
                 controllable=True  # Changed to TRUE to allow power adjustment
             )
-            st.write(f"Added SMR at Bus {bus} (300 MW capacity)")
+            st.write(f"Added SMR at Bus {bus} (300 MW capacity, ${smr_cost_millions:.2f} million)")
+    
+    if total_cost_millions > 0:
+        st.info(f"Total SMR construction cost: ${total_cost_millions:.2f} million")
     
     # Run power flow to update the network state
     try:
@@ -954,7 +964,20 @@ def apply_new_generators_effect(input_net):
         {"type": "solar", "capacity": 150, "min_output": 0, "pref_weight": 0.1}          # Low preference
     ]
     
+    # Define construction costs by generator type
+    construction_costs = {
+        "solar": 1588,      # USD per kW
+        "wind": 1451,       # USD per kW
+        "natural gas": 820, # USD per kW
+        "battery": 1205,    # USD per kW
+        "petroleum": 2084,  # USD per kW
+        "nuclear": 6317,    # USD per kW
+        "coal": 3500,       # USD per kW
+        "pumped storage": 2500  # USD per kW
+    }
+    
     # Add generators to these buses
+    total_cost_millions = 0
     for i, bus in enumerate(target_buses):
         # Choose generator type - prefer natural gas and coal (using weights)
         import random
@@ -969,6 +992,12 @@ def apply_new_generators_effect(input_net):
                 break
         
         if not existing_generator:
+            # Calculate construction cost
+            capacity_kw = selected_gen["capacity"] * 1000  # Convert MW to kW
+            cost_per_kw = construction_costs.get(selected_gen["type"], 1000)  # Default if type not found
+            construction_cost_millions = (capacity_kw * cost_per_kw) / 1000000  # Convert to millions
+            total_cost_millions += construction_cost_millions
+            
             # Add a new generator
             pp.create_gen(
                 modified_net,
@@ -982,7 +1011,10 @@ def apply_new_generators_effect(input_net):
                 name=f"New Generator {i+1} ({selected_gen['type']})",
                 controllable=True
             )
-            st.write(f"Added {selected_gen['type']} generator at Bus {bus} ({selected_gen['capacity']} MW capacity)")
+            st.write(f"Added {selected_gen['type']} generator at Bus {bus} ({selected_gen['capacity']} MW capacity, ${construction_cost_millions:.2f} million)")
+    
+    if total_cost_millions > 0:
+        st.info(f"Total generator construction cost: ${total_cost_millions:.2f} million")
     
     # Run power flow to update the network state
     try:
@@ -1020,79 +1052,55 @@ def apply_transmission_line_effect(input_net):
     # Create a copy of the network
     modified_net = input_net.deepcopy()
     
-    # Find the highest loaded line
-    highest_loaded_line_idx = modified_net.res_line['loading_percent'].idxmax()
-    highest_line_loading = modified_net.res_line.at[highest_loaded_line_idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+    # Find multiple highly loaded lines instead of just the highest one
+    num_lines_to_consider = 5  # Consider top 5 most loaded lines
+    highly_loaded_lines = modified_net.res_line.nlargest(num_lines_to_consider, 'loading_percent')
     
-    # Get from and to buses of the overloaded line
-    from_bus = modified_net.line.at[highest_loaded_line_idx, 'from_bus']
-    to_bus = modified_net.line.at[highest_loaded_line_idx, 'to_bus']
+    st.write(f"Analyzing {len(highly_loaded_lines)} most loaded lines in the network:")
+    for idx, loading in zip(highly_loaded_lines.index, highly_loaded_lines['loading_percent']):
+        st.write(f"Line {idx}: {loading/LINE_LOADING_SCALE_FACTOR:.1f}% loaded")
     
-    # Find alternative route
-    from_connected = []
-    for idx, line in modified_net.line.iterrows():
-        if line['from_bus'] == from_bus and line['to_bus'] != to_bus:
-            from_connected.append(line['to_bus'])
-        elif line['to_bus'] == from_bus and line['from_bus'] != to_bus:
-            from_connected.append(line['from_bus'])
+    # Collect all buses connected to highly loaded lines
+    critical_buses = set()
+    for line_idx in highly_loaded_lines.index:
+        line = modified_net.line.loc[line_idx]
+        critical_buses.add(line['from_bus'])
+        critical_buses.add(line['to_bus'])
     
-    to_connected = []
-    for idx, line in modified_net.line.iterrows():
-        if line['from_bus'] == to_bus and line['to_bus'] != from_bus:
-            to_connected.append(line['to_bus'])
-        elif line['to_bus'] == to_bus and line['from_bus'] != from_bus:
-            to_connected.append(line['from_bus'])
+    st.write(f"Identified {len(critical_buses)} critical buses connected to highly loaded lines")
     
-    # Find potential new connections that would create a parallel path
+    # Find all possible connections between buses that could relieve multiple lines
     potential_connections = []
-    for bus1 in from_connected:
-        for bus2 in to_connected:
-            # Check if buses are not already directly connected
-            already_connected = False
-            for _, line in modified_net.line.iterrows():
-                if (line['from_bus'] == bus1 and line['to_bus'] == bus2) or \
-                   (line['from_bus'] == bus2 and line['to_bus'] == bus1):
-                    already_connected = True
-                    break
-            
-            if not already_connected and bus1 != bus2:
-                # Get coordinates
-                bus1_x = modified_net.bus_geodata.at[bus1, 'x']
-                bus1_y = modified_net.bus_geodata.at[bus1, 'y']
-                bus2_x = modified_net.bus_geodata.at[bus2, 'x']
-                bus2_y = modified_net.bus_geodata.at[bus2, 'y']
-                
-                # Calculate distance
-                distance = haversine(bus1_y, bus1_x, bus2_y, bus2_x)
-                
-                # Calculate approximate load transfer potential
-                potential = 100 / distance  # Higher potential for shorter lines
-                
-                potential_connections.append((bus1, bus2, distance, potential))
     
-    # If no optimal parallel path found, look for any potentially beneficial connection
-    if not potential_connections:
-        # Get buses with high loading or high generation/demand
-        important_buses = set()
-        for idx, line in modified_net.res_line.iterrows():
-            if line['loading_percent'] > 50:  # Look for other moderately loaded lines
-                important_buses.add(modified_net.line.at[idx, 'from_bus'])
-                important_buses.add(modified_net.line.at[idx, 'to_bus'])
-        
-        # Create connections between important buses
-        for bus1 in important_buses:
-            for bus2 in important_buses:
-                if bus1 < bus2:  # Avoid duplicates
-                    # Check if not already connected
-                    already_connected = False
-                    for _, line in modified_net.line.iterrows():
-                        if (line['from_bus'] == bus1 and line['to_bus'] == bus2) or \
-                           (line['from_bus'] == bus2 and line['to_bus'] == bus1):
-                            already_connected = True
-                            break
-                    
-                    if not already_connected:
-                        # Get coordinates
+    # First, get all buses that might be useful to connect
+    important_buses = set()
+    for idx, line in modified_net.res_line.iterrows():
+        if line['loading_percent'] > 50:  # Consider moderately to highly loaded lines
+            important_buses.add(modified_net.line.at[idx, 'from_bus'])
+            important_buses.add(modified_net.line.at[idx, 'to_bus'])
+    
+    # Add some generator buses to the important set (they can provide relief)
+    for idx in modified_net.gen.index:
+        important_buses.add(modified_net.gen.at[idx, 'bus'])
+    
+    # Add critical buses to the important set
+    important_buses.update(critical_buses)
+    
+    # Generate all possible pairs of buses to connect
+    for bus1 in important_buses:
+        for bus2 in important_buses:
+            if bus1 < bus2:  # Avoid duplicates
+                # Check if not already connected
+                already_connected = False
+                for _, line in modified_net.line.iterrows():
+                    if (line['from_bus'] == bus1 and line['to_bus'] == bus2) or \
+                       (line['from_bus'] == bus2 and line['to_bus'] == bus1):
+                        already_connected = True
+                        break
+                
+                if not already_connected:
+                    # Get coordinates
+                    if all(bus in modified_net.bus_geodata.index for bus in [bus1, bus2]):
                         bus1_x = modified_net.bus_geodata.at[bus1, 'x']
                         bus1_y = modified_net.bus_geodata.at[bus1, 'y']
                         bus2_x = modified_net.bus_geodata.at[bus2, 'x']
@@ -1101,66 +1109,106 @@ def apply_transmission_line_effect(input_net):
                         # Calculate distance
                         distance = haversine(bus1_y, bus1_x, bus2_y, bus2_x)
                         
-                        # Only consider reasonable distances
-                        if distance < 150:  # km
-                            potential_connections.append((bus1, bus2, distance, 50))  # Default potential
+                        # Don't consider extremely long connections
+                        if distance < 200:  # km
+                            # Calculate potential benefit score
+                            # Higher score for connections involving critical buses
+                            critical_bus_factor = 0
+                            if bus1 in critical_buses:
+                                critical_bus_factor += 1
+                            if bus2 in critical_buses:
+                                critical_bus_factor += 1
+                            
+                            # Favor shorter distances - benefit decreases with distance
+                            distance_factor = 100 / max(1, distance)
+                            
+                            # Calculate final score (higher is better)
+                            score = critical_bus_factor * 100 + distance_factor
+                            
+                            potential_connections.append((bus1, bus2, distance, score))
     
     if not potential_connections:
-        st.warning("No suitable connection found to relieve the overloaded line.")
+        st.warning("No suitable connections found to relieve line loadings.")
         return modified_net
     
-    # Sort by potential benefit (higher potential and shorter distance is better)
+    # Sort by score (higher score is better)
     potential_connections.sort(key=lambda x: (-x[3], x[2]))
     
-    # Take the best option
-    best_connection = potential_connections[0]
-    new_from_bus, new_to_bus, length_km, _ = best_connection
+    # Take the top 3 connections or fewer if less available
+    top_connections = potential_connections[:min(3, len(potential_connections))]
     
-    # Check if this line already exists (for compound effects)
-    for idx, line in modified_net.line.iterrows():
-        if (line['from_bus'] == new_from_bus and line['to_bus'] == new_to_bus) or \
-           (line['from_bus'] == new_to_bus and line['to_bus'] == new_from_bus):
-            if "New" in str(line.get('name', '')):
-                st.write(f" A new transmission line already exists between Bus {new_from_bus} and Bus {new_to_bus}")
-                return modified_net
+    # Add new lines for the top connections
+    lines_added = 0
+    total_cost_millions = 0
+    for new_from_bus, new_to_bus, length_km, score in top_connections:
+        # Check if this line already exists (for compound effects)
+        already_exists = False
+        for idx, line in modified_net.line.iterrows():
+            if (line['from_bus'] == new_from_bus and line['to_bus'] == new_to_bus) or \
+               (line['from_bus'] == new_to_bus and line['to_bus'] == new_from_bus):
+                if "New" in str(line.get('name', '')):
+                    already_exists = True
+                    st.write(f"A new transmission line already exists between Bus {new_from_bus} and Bus {new_to_bus}")
+                    break
+        
+        if not already_exists:
+            # Calculate transmission line cost
+            line_cost_millions = length_km * 2.5  # $2.5M per km
+            total_cost_millions += line_cost_millions
+            
+            # Create the new line
+            voltage_level = max(modified_net.bus.at[new_from_bus, 'vn_kv'], modified_net.bus.at[new_to_bus, 'vn_kv'])
+            
+            if voltage_level >= 500:
+                # Parameters for 500kV line
+                pp.create_line_from_parameters(
+                    modified_net,
+                    from_bus=new_from_bus,
+                    to_bus=new_to_bus,
+                    length_km=length_km,
+                    r_ohm_per_km=0.01,
+                    x_ohm_per_km=0.25,
+                    c_nf_per_km=12,
+                    max_i_ka=3.0,
+                    name=f"New 500kV Line {lines_added+1}"
+                )
+            else:
+                # Parameters for 230kV line
+                pp.create_line_from_parameters(
+                    modified_net,
+                    from_bus=new_from_bus,
+                    to_bus=new_to_bus,
+                    length_km=length_km,
+                    r_ohm_per_km=0.1,
+                    x_ohm_per_km=0.4,
+                    c_nf_per_km=9,
+                    max_i_ka=1.5,
+                    name=f"New 230kV Line {lines_added+1}"
+                )
+            
+            st.write(f"➕ Added {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus} (benefit score: {score:.1f}, cost: ${line_cost_millions:.2f} million)")
+            lines_added += 1
+            
+            # Run power flow after each line addition to update line loadings
+            try:
+                pp.runpp(modified_net)
+            except Exception as e:
+                st.warning(f"Power flow calculation failed after adding transmission line: {str(e)}")
     
-    # Create the new line
-    voltage_level = max(modified_net.bus.at[new_from_bus, 'vn_kv'], modified_net.bus.at[new_to_bus, 'vn_kv'])
-    
-    if voltage_level >= 500:
-        # Parameters for 500kV line
-        pp.create_line_from_parameters(
-            modified_net,
-            from_bus=new_from_bus,
-            to_bus=new_to_bus,
-            length_km=length_km,
-            r_ohm_per_km=0.01,
-            x_ohm_per_km=0.25,
-            c_nf_per_km=12,
-            max_i_ka=3.0,
-            name=f"New 500kV Line"
-        )
+    if lines_added == 0:
+        st.info("No new transmission lines were added.")
     else:
-        # Parameters for 230kV line
-        pp.create_line_from_parameters(
-            modified_net,
-            from_bus=new_from_bus,
-            to_bus=new_to_bus,
-            length_km=length_km,
-            r_ohm_per_km=0.1,
-            x_ohm_per_km=0.4,
-            c_nf_per_km=9,
-            max_i_ka=1.5,
-            name=f"New 230kV Line"
-        )
-    
-    st.write(f"➕ Added {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus}")
-    
-    # Run power flow with the new line
-    try:
-        pp.runpp(modified_net)
-    except:
-        st.warning("Power flow calculation failed after adding new transmission line")
+        st.success(f"Added {lines_added} new transmission lines to reduce network congestion.")
+        st.info(f"Total transmission line cost: ${total_cost_millions:.2f} million")
+        
+        # Show the impact on highly loaded lines
+        st.write("### Impact on previously overloaded lines:")
+        for idx in highly_loaded_lines.index:
+            if idx in modified_net.res_line.index:
+                old_loading = highly_loaded_lines.at[idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+                new_loading = modified_net.res_line.at[idx, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+                change = old_loading - new_loading
+                st.write(f"Line {idx}: {old_loading:.1f}% → {new_loading:.1f}% (reduced by {change:.1f}%)")
     
     return modified_net
 
@@ -1372,16 +1420,6 @@ with col2:
         else:
             st.session_state['active_shocks'].append('fossil')
         st.rerun()
-
-# Status area to show what's active
-if st.session_state['active_mitigations'] or st.session_state['active_shocks']:
-    active_count = len(st.session_state['active_mitigations']) + len(st.session_state['active_shocks'])
-    st.info(f"Total active scenarios: {active_count}")
-    
-    if st.session_state['active_mitigations']:
-        st.write("Active mitigations:", ", ".join(st.session_state['active_mitigations']))
-    if st.session_state['active_shocks']:
-        st.write("Active shocks:", ", ".join(st.session_state['active_shocks']))
 
 # Add a reset button with distinctive styling
 st.markdown("---")
