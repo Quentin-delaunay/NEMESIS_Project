@@ -1491,6 +1491,93 @@ def apply_fossil_fuel_effect(input_net):
     
     return modified_net
 
+def estimate_affected_population(network, high_pop_areas, original_network=None):
+    """
+    Estimate the number of people affected by power outages due to generation shortfall.
+    
+    Args:
+        network: The current network (post-shock)
+        high_pop_areas: DataFrame with population data
+        original_network: The original network (pre-shock) for comparison
+    
+    Returns:
+        Dict with statistics about affected population
+    """
+    # Calculate total generation capacity
+    try:
+        pp.runpp(network)
+        total_generation = network.res_gen['p_mw'].sum() if not network.res_gen.empty else 0
+        
+        # Calculate total load demand
+        total_load = network.res_load['p_mw'].sum() if not network.res_load.empty else 0
+        
+        # Check if there's a shortfall
+        shortfall = max(0, total_load - total_generation)
+        
+        if shortfall <= 0:
+            # No shortfall, no one affected
+            return {
+                "affected_people": 0,
+                "affected_percentage": 0,
+                "shortfall_mw": 0,
+                "shortfall_percentage": 0
+            }
+        
+        # Calculate what percentage of load can't be served
+        shortfall_percentage = (shortfall / total_load) * 100 if total_load > 0 else 0
+        
+        # Map this percentage to population
+        total_population = high_pop_areas['POP2010'].sum()
+        affected_people = int(total_population * (shortfall_percentage / 100))
+        affected_percentage = (affected_people / total_population) * 100 if total_population > 0 else 0
+        
+        return {
+            "affected_people": affected_people,
+            "affected_percentage": affected_percentage,
+            "shortfall_mw": shortfall,
+            "shortfall_percentage": shortfall_percentage,
+            "total_population": total_population,
+            "total_load_mw": total_load,
+            "total_generation_mw": total_generation
+        }
+        
+    except Exception as e:
+        st.warning(f"Error estimating affected population: {str(e)}")
+        return {
+            "affected_people": 0,
+            "affected_percentage": 0,
+            "shortfall_mw": 0,
+            "shortfall_percentage": 0,
+            "error": str(e)
+        }
+
+def display_outage_impact(impact_stats):
+    """
+    Display the impact of power outages in the UI.
+    """
+    if impact_stats["affected_people"] > 0:
+        st.error(f"### Estimated Power Outage Impact")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("People Without Power", f"{impact_stats['affected_people']:,}")
+            st.metric("Percentage of Population", f"{impact_stats['affected_percentage']:.1f}%")
+        
+        with col2:
+            st.metric("Power Shortfall", f"{impact_stats['shortfall_mw']:.1f} MW")
+            st.metric("Load that Cannot be Served", f"{impact_stats['shortfall_percentage']:.1f}%")
+            
+        # Add description of how outages would likely be managed
+        st.info("""
+        ℹ️ **How outages would be managed:**
+        
+        In a real grid emergency, controlled rolling blackouts would likely be implemented. 
+        Critical infrastructure (hospitals, emergency services) would be prioritized, with rotating 
+        outages affecting different areas to distribute the impact.
+        """)
+    else:
+        st.success("There is sufficient generation to meet all demand - no expected power outages.")
+
 def apply_compound_effects(mitigations, shocks):
     """Apply multiple mitigation and shock effects to the network in sequence"""
     # Start with a copy of the original network
@@ -1523,6 +1610,11 @@ def apply_compound_effects(mitigations, shocks):
                 modified_net = apply_cyber_attack_effect(modified_net)
             elif shock == 'fossil':
                 modified_net = apply_fossil_fuel_effect(modified_net)
+        
+        # After shocks are applied, estimate and display impact on population
+        with st.spinner("Estimating population impact..."):
+            impact_stats = estimate_affected_population(modified_net, high_pop_areas, net)
+            display_outage_impact(impact_stats)
     
     # Run power flow one more time to ensure results are up-to-date
     st.write("### Running final power flow calculation...")
