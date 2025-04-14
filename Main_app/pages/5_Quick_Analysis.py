@@ -26,6 +26,7 @@ st.write('This page makes the assumption looking at only the highest voltage lin
 'that attempts to see what if any mitigation strategies can reduce the grid load. A significant overload can be seen as grid failure, and this model does not increase transmission capacity'
 ', so therefore the further into the future the more likely the grid will fail. This is supported by the NERC, stating that the grid will fail in 2030,'
 'due to insufficient growth in SERC-East.')
+
 military_bases = [
     {"name": "Moody Air Force Base", "latitude": 30.968611, "longitude": -83.193056, 'type': 'Air Force Base'},
     {"name": "Robins Air Force Base", "latitude": 32.64, "longitude": -83.591667, 'type': 'Air Force Base'},
@@ -625,7 +626,7 @@ def create_network_map():
         loading = loading / LINE_LOADING_SCALE_FACTOR
         
         # Use color scale similar to the original graph
-        cmap = cm.get_cmap("Purples")  # Changed from Blues to Purples for better contrast
+        cmap = cm.get_cmap("plasma")  # Changed from Blues to Purples for better contrast
         norm = mcolors.Normalize(vmin=0, vmax=100)
         rgba = cmap(norm(loading))
         hex_color = mcolors.to_hex(rgba)
@@ -670,7 +671,7 @@ def create_network_map():
         lat=[None],
         mode="markers",
         marker=dict(
-            colorscale="Purples",  # Changed from Blues to Purples
+            colorscale="plasma",  # Changed from Blues to plasma
             showscale=True,
             cmin=0,
             cmax=100,
@@ -1362,7 +1363,7 @@ def apply_transmission_line_effect(input_net):
                     name=f"New 230kV Line {lines_added+1}"
                 )
             
-            st.write(f"➕ Added {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus} (benefit score: {score:.1f}, cost: ${line_cost_millions:.2f} million)")
+            st.write(f" Added {length_km:.1f} km transmission line from Bus {new_from_bus} to Bus {new_to_bus} (benefit score: {score:.1f}, cost: ${line_cost_millions:.2f} million)")
             lines_added += 1
             
             # Run power flow after each line addition to update line loadings
@@ -1569,7 +1570,7 @@ def display_outage_impact(impact_stats):
             
         # Add description of how outages would likely be managed
         st.info("""
-        ℹ️ **How outages would be managed:**
+         **How outages would be managed:**
         
         In a real grid emergency, controlled rolling blackouts would likely be implemented. 
         Critical infrastructure (hospitals, emergency services) would be prioritized, with rotating 
