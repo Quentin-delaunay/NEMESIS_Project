@@ -19,7 +19,7 @@ TYPE_SYNONYMS = {
 
 # Page configuration
 st.set_page_config(page_title="Network Inspection & Modification", layout="wide")
-st.title("Inspection and modification of a given network.")
+st.title("Inspection and modification of a given network")
 
 # File uploader in the sidebar
 uploaded_file = st.sidebar.file_uploader("Choose a network pickle file", type=["p", "pkl"])
