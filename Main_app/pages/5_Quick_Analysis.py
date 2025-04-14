@@ -105,9 +105,11 @@ if 'show_military_bases' not in st.session_state:
     st.session_state['show_military_bases'] = False
 if 'show_risk_index' not in st.session_state:
     st.session_state['show_risk_index'] = False
+if 'show_nearest_bases_table' not in st.session_state:
+    st.session_state['show_nearest_bases_table'] = False
 
 # Add toggle buttons for military bases and risk index display
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     if st.button('Toggle Military Bases', key='toggle_bases'):
         st.session_state['show_military_bases'] = not st.session_state['show_military_bases']
@@ -116,12 +118,18 @@ with col2:
     if st.button('Display Risk Index', key='show_risk'):
         st.session_state['show_risk_index'] = not st.session_state['show_risk_index']
         st.rerun()
+with col3:
+    if st.button('Toggle Bases-Lines Table', key='toggle_table'):
+        st.session_state['show_nearest_bases_table'] = not st.session_state['show_nearest_bases_table']
+        st.rerun()
 
 # Show status messages based on what's displayed
 if st.session_state['show_military_bases']:
     st.success("Military bases are being displayed")
 if st.session_state['show_risk_index']:
     st.success("Risk index is being displayed")
+if st.session_state['show_nearest_bases_table']:
+    st.success("Military bases to lines table is being displayed")
 
 def create_baseline_map():
     # Load population data
@@ -535,10 +543,19 @@ with st.spinner("Creating and saving network..."):
     net = create_and_save_baseline_network(substations_gdf, high_pop_areas, edges, baseline_power_plants)
 
 def calculate_line_loading(net):
-    pp.runpp(net)
-    line_loading = net.res_line[['loading_percent']] 
-    return line_loading
-
+    """
+    Calculate line loading and add it to the network lines.
+    """
+    # Run power flow calculation
+    pp.runpp(net, calculate_voltage_angles=True, init="auto")
+    
+    # Calculate loading percentage for each line
+    for idx, line in net.line.iterrows():
+        if idx in net.res_line.index:
+            loading_percent = (net.res_line.at[idx, "loading_percent"] / LINE_LOADING_SCALE_FACTOR) * 100
+            net.line.at[idx, "loading_percent"] = loading_percent
+    
+    return net
 # Calculate line loading
 with st.spinner("Calculating line loading..."):
     line_loading = calculate_line_loading(net)
@@ -552,106 +569,145 @@ if hasattr(net, "bus_geodata") and not net.bus_geodata.empty:
 else:
     pos = nx.spring_layout(G, seed=42)
 
-# Prepare node trace for bus overloads
-node_x, node_y, node_color, node_text = [], [], [], []
-for bus in G.nodes():
-    x, y = pos[bus]
-    node_x.append(x)
-    node_y.append(y)
-    overload = G.nodes[bus].get("overload", 0)
-    node_color.append(overload)
-    label = f"Bus {bus}<br>Overload: {overload:.1f}%" if overload > 0 else ""
-    node_text.append(label)
-
-node_trace = go.Scatter(
-    x=node_x,
-    y=node_y,
-    mode="markers+text",
-    text=node_text,
-    textposition="top center",
-    hoverinfo="text",
-    marker=dict(
-        size=15,
-        color=node_color,
-        colorscale="Reds",
-        colorbar=dict(title="Bus Overload (%)", x=0.0),
-        cmin=0,
-        cmax=max(node_color) if node_color else 1,
-        line=dict(width=2)
-    )
-)
-
-# Prepare edge traces for line loadings
-edge_traces = []
-edge_annotations = []
-for idx, line in net.line.iterrows():
-    u = line["from_bus"]
-    v = line["to_bus"]
-    if u not in pos or v not in pos:
-        continue
-    x0, y0 = pos[u]
-    x1, y1 = pos[v]
-    loading = net.res_line.at[idx, "loading_percent"] if idx in net.res_line.index else 0
-    loading = loading / LINE_LOADING_SCALE_FACTOR
-    cmap = cm.get_cmap("Blues")
-    norm = mcolors.Normalize(vmin=0, vmax=100)
-    rgba = cmap(norm(loading))
-    hex_color = mcolors.to_hex(rgba)
-    edge_trace = go.Scatter(
-        x=[x0, x1],
-        y=[y0, y1],
-        mode="lines",
-        line=dict(color=hex_color, width=3),
-        hoverinfo="text",
-        text=f"Line {idx}<br>Loading: {loading:.1f}%"
-    )
-    edge_traces.append(edge_trace)
-    if loading > 100:
-        mid_x = (x0 + x1) / 2
-        mid_y = (y0 + y1) / 2
-        edge_annotations.append(dict(
-            x=mid_x,
-            y=mid_y,
-            text=f"{loading:.1f}%",
-            showarrow=False,
-            font=dict(color="red", size=15)
-        ))
-
-fig_network = go.Figure(
-    data=edge_traces + [node_trace],
-    layout=go.Layout(
-        title="Network Graph: Bus Overloads & Line Loadings",
-        showlegend=False,
-        hovermode="closest",
-        annotations=edge_annotations,
-        xaxis=dict(
-            scaleanchor="y", scaleratio=1,
-            showgrid=False, zeroline=False, showticklabels=False
+# Create a map-based visualization with Georgia background
+def create_network_map():
+    # Calculate map center based on network nodes
+    node_lon, node_lat = [], []
+    for bus in G.nodes():
+        if bus in pos:
+            x, y = pos[bus]
+            node_lon.append(x)
+            node_lat.append(y)
+    
+    if node_lon and node_lat:
+        center_lon = sum(node_lon) / len(node_lon)
+        center_lat = sum(node_lat) / len(node_lat)
+    else:
+        # Default to center of Georgia if no nodes have positions
+        center_lon, center_lat = -83.6431, 32.6415
+    
+    # Prepare node trace for map
+    node_trace_map = go.Scattermapbox(
+        lon=node_lon,
+        lat=node_lat,
+        mode="markers",
+        marker=dict(
+            size=10,
+            color=[G.nodes[bus].get("overload", 0) for bus in G.nodes() if bus in pos],
+            colorscale="Reds",
+            colorbar=dict(
+                title="Bus Overload (%)", 
+                x=1.02,  # Position outside the right edge of the map
+                thicknessmode="pixels",
+                thickness=20,
+                outlinewidth=1,
+                outlinecolor="black"
+            ),
+            cmin=0,
+            cmax=max([G.nodes[bus].get("overload", 0) for bus in G.nodes() if bus in pos] or [1]),
+            showscale=True
         ),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        width=750,
-        height=750,
-        margin=dict(l=20, r=20, t=40, b=20)
+        text=[f"Bus {bus}<br>Overload: {G.nodes[bus].get('overload', 0):.1f}%" for bus in G.nodes() if bus in pos],
+        hoverinfo="text"
     )
-)
+    
+    # Prepare edge traces for map
+    edge_traces_map = []
+    for idx, line in net.line.iterrows():
+        u = line["from_bus"]
+        v = line["to_bus"]
+        if u not in pos or v not in pos:
+            continue
+            
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        loading = net.res_line.at[idx, "loading_percent"] if idx in net.res_line.index else 0
+        loading = loading / LINE_LOADING_SCALE_FACTOR
+        
+        # Use color scale similar to the original graph
+        cmap = cm.get_cmap("Purples")  # Changed from Blues to Purples for better contrast
+        norm = mcolors.Normalize(vmin=0, vmax=100)
+        rgba = cmap(norm(loading))
+        hex_color = mcolors.to_hex(rgba)
+        
+        edge_trace = go.Scattermapbox(
+            lon=[x0, x1, None],  # None separates lines
+            lat=[y0, y1, None],
+            mode="lines",
+            line=dict(
+                width=3,
+                color=hex_color
+            ),
+            hoverinfo="text",
+            text=f"Line {idx}<br>Loading: {loading:.1f}%",
+            showlegend=False
+        )
+        edge_traces_map.append(edge_trace)
+        
+        # Add annotations for overloaded lines
+        if loading > 100:
+            mid_x = (x0 + x1) / 2
+            mid_y = (y0 + y1) / 2
+            overload_marker = go.Scattermapbox(
+                lon=[mid_x],
+                lat=[mid_y],
+                mode="markers+text",
+                marker=dict(size=10, color="red"),
+                text=f"{loading:.1f}%",
+                textposition="top center",
+                textfont=dict(color="red", size=12),
+                hoverinfo="none",
+                showlegend=False
+            )
+            edge_traces_map.append(overload_marker)
+    
+    # Create the map figure
+    fig_map = go.Figure(data=edge_traces_map + [node_trace_map])
+    
+    # Add a dummy trace for the line loading colorbar
+    dummy_trace_map = go.Scattermapbox(
+        lon=[None],
+        lat=[None],
+        mode="markers",
+        marker=dict(
+            colorscale="Purples",  # Changed from Blues to Purples
+            showscale=True,
+            cmin=0,
+            cmax=100,
+            colorbar=dict(
+                title="Line Loading (%)",
+                x=1.2,  # Position further to the right of the bus overload colorbar
+                thicknessmode="pixels",
+                thickness=20,
+                outlinewidth=1,
+                outlinecolor="black"
+            )
+        ),
+        hoverinfo="none",
+        showlegend=False
+    )
+    fig_map.add_trace(dummy_trace_map)
+    
+    # Setup the map layout with adjusted margins to accommodate colorbars
+    fig_map.update_layout(
+        mapbox=dict(
+            style="open-street-map",  
+            center=dict(lat=center_lat, lon=center_lon),
+            zoom=6
+        ),
+        title="Georgia Network Map",
+        height=600,
+        margin=dict(l=20, r=100, t=40, b=20), 
+        autosize=True
+    )
+    
+    return fig_map
 
-# Add a dummy trace for the line loading colorbar
-dummy_trace = go.Scatter(
-    x=[None],
-    y=[None],
-    mode="markers",
-    marker=dict(
-        colorscale="Blues",
-        showscale=True,
-        cmin=0,
-        cmax=100,
-        colorbar=dict(title="Line Loading (%)", x=1.0)
-    ),
-    hoverinfo="none"
-)
-fig_network.add_trace(dummy_trace)
-
-st.plotly_chart(fig_network, use_container_width=True, key="network_chart")
+# Display the network on Georgia map
+st.subheader("Georgia Network Map")
+with st.spinner("Creating map visualization..."):
+    fig_map = create_network_map()
+    st.plotly_chart(fig_map, use_container_width=True, key="network_map")
 
 def find_nearest_military_bases_to_lines(line_positions, military_bases, top_n=3):
     nearest_bases = []
@@ -683,15 +739,16 @@ for idx in highest_loaded_lines:
 # Find the nearest military bases to the highest loaded lines
 nearest_bases_to_lines = find_nearest_military_bases_to_lines(line_positions, military_bases)
 
-# Display the results on the dashboard
-st.subheader("Nearest Military Bases to Highly Loaded Lines")
-for line, bases in nearest_bases_to_lines:
-    line_loading = net.res_line.at[line, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
-    st.write(f"Line {line} (Loading: {line_loading:.1f}%) is closest to the following military bases:")
-    table_data = []
-    for base, distance in bases:
-        table_data.append({"Base": base, "Distance (km)": distance})
-    st.table(pd.DataFrame(table_data))
+# Display the results on the dashboard only if the toggle is on
+if st.session_state['show_nearest_bases_table']:
+    st.subheader("Nearest Military Bases to Highly Loaded Lines")
+    for line, bases in nearest_bases_to_lines:
+        line_loading = net.res_line.at[line, 'loading_percent'] / LINE_LOADING_SCALE_FACTOR
+        st.write(f"Line {line} (Loading: {line_loading:.1f}%) is closest to the following military bases:")
+        table_data = []
+        for base, distance in bases:
+            table_data.append({"Base": base, "Distance (km)": distance})
+        st.table(pd.DataFrame(table_data))
 
 # Define all the functions needed for compound effects
 def show_network_comparison(original_net, modified_net, original_title, modified_title):
