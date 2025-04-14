@@ -28,5 +28,5 @@ st.write("Welcome to our modeling and simulation environment for the Georgia Sta
 st.write("Use the sidebar to navigate between pages.")
 left_co, cent_co, last_co = st.columns(3)
 with cent_co:
-    st.image("Main_app/PICTURES/nemesis.jpg",  width=350)
+    st.image("Main_app/PICTURES/nemesis.png",  width=350)
 
