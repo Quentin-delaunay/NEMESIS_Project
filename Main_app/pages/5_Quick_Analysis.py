@@ -1463,38 +1463,129 @@ def apply_fossil_fuel_effect(input_net):
     fossil_fuel_percentages = {
         'coal': 0.90,        # 90% of coal is domestic
         'petroleum': 0.34,   # 34% of petroleum is domestic
-        'natural gas': 0.95  # 95% of natural gas is domestic
+        'natural gas': 0.95,  # 95% of natural gas is domestic
+        'uranium': 0.09,     # 9% of uranium is domestic
+        'nuclear': 0.09      # Nuclear plants are affected by uranium availability
     }
     
-    # Modify all generators based on their type (extracted from name)
+    # Track affected generators by type
+    affected_by_type = {fuel_type: 0 for fuel_type in fossil_fuel_percentages}
+    total_mw_reduction = 0
     affected_count = 0
+    detailed_impacts = []
+    
     for idx in modified_net.gen.index:
         gen_name = modified_net.gen.at[idx, 'name'].lower()
         original_p_mw = modified_net.gen.at[idx, 'p_mw']
         original_max_mw = modified_net.gen.at[idx, 'max_p_mw']
         
-        # Check if this generator uses fossil fuels
+        # Check if this generator uses fossil fuels or nuclear fuel
         for fuel_type, domestic_percent in fossil_fuel_percentages.items():
             if fuel_type in gen_name:
                 # Adjust the generator output and maximum capacity
-                modified_net.gen.at[idx, 'p_mw'] = original_p_mw * domestic_percent
+                new_p_mw = original_p_mw * domestic_percent
+                modified_net.gen.at[idx, 'p_mw'] = new_p_mw
                 modified_net.gen.at[idx, 'max_p_mw'] = original_max_mw * domestic_percent
                 affected_count += 1
+                affected_by_type[fuel_type] += 1
+                total_mw_reduction += (original_p_mw - new_p_mw)
+                
+                # Store detailed impact information
+                reduction_percentage = (1 - domestic_percent) * 100
+                detailed_impacts.append({
+                    'generator': gen_name,
+                    'fuel_type': fuel_type,
+                    'before': original_p_mw,
+                    'after': new_p_mw,
+                    'reduction_pct': reduction_percentage,
+                    'mw_lost': original_p_mw - new_p_mw
+                })
                 break
     
-    st.write(f" Fossil fuel shortage affecting {affected_count} generators, reducing their output to domestic supply levels")
+    # Display summary with improved formatting
+    st.markdown(f"### Resource Shortage Impact Summary")
     
+    # Show high-level metrics in columns
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Affected Generators", affected_count)
+        st.metric("Total Generation Reduction", f"{total_mw_reduction:.1f} MW")
+    
+    with col2:
+        # Calculate percentages of affected generators
+        source_counts = {}
+        for fuel_type, count in affected_by_type.items():
+            if count > 0:
+                domestic_percent = fossil_fuel_percentages[fuel_type] * 100
+                st.metric(
+                    f"{fuel_type.capitalize()} Supply",
+                    f"{domestic_percent:.1f}% domestic",
+                    f"-{100-domestic_percent:.1f}%",
+                    delta_color="inverse"
+                )
+    
+    # Create an expander for detailed impacts
+    with st.expander("View Detailed Generator Impacts"):
+        if detailed_impacts:
+            # Create a DataFrame for better display
+            impact_df = pd.DataFrame(detailed_impacts)
+            
+            # Format columns for display
+            impact_df['generator'] = impact_df['generator'].str.title()
+            impact_df['fuel_type'] = impact_df['fuel_type'].str.capitalize()
+            impact_df['Output Before (MW)'] = impact_df['before'].round(1)
+            impact_df['Output After (MW)'] = impact_df['after'].round(1)
+            impact_df['Reduction (MW)'] = impact_df['mw_lost'].round(1)
+            impact_df['Reduction (%)'] = impact_df['reduction_pct'].round(1)
+            
+            # Select and reorder columns for display
+            display_df = impact_df[['generator', 'fuel_type', 'Output Before (MW)', 
+                                    'Output After (MW)', 'Reduction (MW)', 'Reduction (%)']]
+            display_df = display_df.rename(columns={'generator': 'Generator', 'fuel_type': 'Fuel Type'})
+            
+            # Sort by reduction amount (largest first)
+            display_df = display_df.sort_values('Reduction (MW)', ascending=False)
+            
+            # Show the table
+            st.table(display_df)
+            
+            # Show a bar chart of the reductions by fuel type
+            st.subheader("Generation Reduction by Fuel Type")
+            reduction_by_type = impact_df.groupby('fuel_type')['mw_lost'].sum().reset_index()
+            reduction_by_type = reduction_by_type.sort_values('mw_lost', ascending=False)
+            
+            fig, ax = plt.subplots(figsize=(10, 4))
+            bars = ax.bar(reduction_by_type['fuel_type'], reduction_by_type['mw_lost'])
+            
+            # Add value labels to bars
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(
+                    bar.get_x() + bar.get_width()/2., 
+                    height + 5,
+                    f'{height:.1f} MW',
+                    ha='center', 
+                    va='bottom'
+                )
+            
+            ax.set_ylabel('MW Reduction')
+            ax.set_title('Generation Reduction by Fuel Type')
+            st.pyplot(fig)
+        else:
+            st.write("No generators were affected")
+
     # Run power flow on the modified network
     try:
         pp.runpp(modified_net)
-    except:
-        st.warning("Power flow calculation failed after fossil fuel shortage - grid may be unstable")
+    except Exception as e:
+        st.warning(f"Power flow calculation failed after fossil fuel shortage - grid may be unstable: {str(e)}")
     
     return modified_net
 
 def estimate_affected_population(network, high_pop_areas, original_network=None):
     """
-    Estimate the number of people affected by power outages due to generation shortfall.
+    Estimate the number of people affected by power outages by comparing 
+    changes in generation capacity against per-person power requirements.
     
     Args:
         network: The current network (post-shock)
@@ -1504,42 +1595,159 @@ def estimate_affected_population(network, high_pop_areas, original_network=None)
     Returns:
         Dict with statistics about affected population
     """
-    # Calculate total generation capacity
     try:
+        # Run power flow to get current network state
         pp.runpp(network)
-        total_generation = network.res_gen['p_mw'].sum() if not network.res_gen.empty else 0
         
-        # Calculate total load demand
-        total_load = network.res_load['p_mw'].sum() if not network.res_load.empty else 0
+        # Calculate total generation and demand in current network
+        current_generation = network.res_gen['p_mw'].sum() if not network.res_gen.empty else 0
+        total_peak_demand = network.res_load['p_mw'].sum() if not network.res_load.empty else 0
         
-        # Check if there's a shortfall
-        shortfall = max(0, total_load - total_generation)
-        
-        if shortfall <= 0:
-            # No shortfall, no one affected
-            return {
-                "affected_people": 0,
-                "affected_percentage": 0,
-                "shortfall_mw": 0,
-                "shortfall_percentage": 0
-            }
-        
-        # Calculate what percentage of load can't be served
-        shortfall_percentage = (shortfall / total_load) * 100 if total_load > 0 else 0
-        
-        # Map this percentage to population
+        # Calculate total population
         total_population = high_pop_areas['POP2010'].sum()
-        affected_people = int(total_population * (shortfall_percentage / 100))
-        affected_percentage = (affected_people / total_population) * 100 if total_population > 0 else 0
+        
+        # Calculate power per person needed
+        power_per_person = total_peak_demand / total_population if total_population > 0 else 0
+        
+        # Calculate shortfall based on generation capacity vs. demand
+        shortfall_mw = max(0, total_peak_demand - current_generation)
+        
+        # If original network provided, calculate generation change
+        generation_change = 0
+        if original_network is not None:
+            # Ensure original network has power flow results
+            if not hasattr(original_network, "res_gen") or original_network.res_gen.empty:
+                try:
+                    pp.runpp(original_network)
+                except:
+                    pass
+            
+            original_generation = original_network.res_gen['p_mw'].sum() if hasattr(original_network, "res_gen") and not original_network.res_gen.empty else 0
+            generation_change = current_generation - original_generation
+            
+            st.info(f"Generation change from original network: {generation_change:.1f} MW")
+            
+            # If generation decreased, this contributes to the shortfall
+            if generation_change < 0:
+                st.warning(f"Lost generation capacity: {abs(generation_change):.1f} MW")
+        
+        # Determine affected areas based on proximity to generation changes
+        affected_areas = []
+        if shortfall_mw > 0:
+            # Calculate how many people would be affected based on the shortfall
+            affected_people = int(shortfall_mw / power_per_person) if power_per_person > 0 else 0
+            affected_percentage = (affected_people / total_population) * 100 if total_population > 0 else 0
+            
+            # Determine which areas would be most affected
+            # (typically areas farthest from remaining generation)
+            
+            # Map buses to their nearest population centers
+            bus_populations = {}
+            bus_to_area_map = {}
+            
+            # First, identify which buses have generation
+            generation_buses = set()
+            for idx, gen in network.gen.iterrows():
+                if idx in network.res_gen.index and network.res_gen.at[idx, 'p_mw'] > 0:
+                    generation_buses.add(gen['bus'])
+            
+            # Calculate "electrical distance" of each load bus from generation
+            # (simplified by using geographic distance)
+            for bus_id in network.bus.index:
+                if bus_id in network.bus_geodata.index:
+                    bus_x = network.bus_geodata.at[bus_id, 'x']
+                    bus_y = network.bus_geodata.at[bus_id, 'y']
+                    
+                    # Find the nearest population center to this bus
+                    min_distance = float('inf')
+                    nearest_pop_idx = None
+                    
+                    for idx, area in high_pop_areas.iterrows():
+                        distance = haversine(bus_y, bus_x, area['latitude'], area['longitude'])
+                        if distance < min_distance:
+                            min_distance = distance
+                            nearest_pop_idx = idx
+                    
+                    if nearest_pop_idx is not None:
+                        area_name = high_pop_areas.at[nearest_pop_idx, 'NAME'] if 'NAME' in high_pop_areas else f"Area_{nearest_pop_idx}"
+                        area_population = high_pop_areas.at[nearest_pop_idx, 'POP2010']
+                        
+                        # Calculate min distance to any generation bus
+                        min_gen_distance = float('inf')
+                        for gen_bus in generation_buses:
+                            if gen_bus in network.bus_geodata.index:
+                                gen_x = network.bus_geodata.at[gen_bus, 'x']
+                                gen_y = network.bus_geodata.at[gen_bus, 'y']
+                                gen_distance = haversine(bus_y, bus_x, gen_y, gen_x)
+                                min_gen_distance = min(min_gen_distance, gen_distance)
+                        
+                        if nearest_pop_idx not in bus_populations:
+                            bus_populations[nearest_pop_idx] = {
+                                'population': area_population,
+                                'area_name': area_name,
+                                'gen_distance': min_gen_distance,
+                                'buses': []
+                            }
+                        
+                        bus_populations[nearest_pop_idx]['buses'].append(bus_id)
+                        bus_to_area_map[bus_id] = nearest_pop_idx
+            
+            # Sort areas by distance from generation (farther = more likely to be affected)
+            sorted_areas = sorted(
+                [(idx, data) for idx, data in bus_populations.items()],
+                key=lambda x: x[1]['gen_distance'],
+                reverse=True
+            )
+            
+            # Allocate the shortfall to areas farthest from generation first
+            remaining_shortfall = shortfall_mw
+            for area_idx, area_data in sorted_areas:
+                if remaining_shortfall <= 0:
+                    break
+                
+                area_population = area_data['population']
+                area_power_needed = area_population * power_per_person
+                
+                # Calculate power outage for this area (capped by area's total need)
+                area_outage = min(remaining_shortfall, area_power_needed)
+                remaining_shortfall -= area_outage
+                
+                # Calculate percentage and people affected in this area
+                outage_percentage = (area_outage / area_power_needed) * 100 if area_power_needed > 0 else 0
+                people_affected = int(area_population * (outage_percentage / 100))
+                
+                affected_areas.append({
+                    'area_name': area_data['area_name'],
+                    'population': area_population,
+                    'affected_people': people_affected,
+                    'outage_percentage': outage_percentage,
+                    'distance_from_generation': area_data['gen_distance'],
+                    'shortfall_mw': area_outage
+                })
+            
+            # Recalculate total affected based on detailed area analysis
+            total_affected = sum(area['affected_people'] for area in affected_areas)
+            affected_percentage = (total_affected / total_population) * 100 if total_population > 0 else 0
+        else:
+            # No shortfall
+            affected_people = 0
+            affected_percentage = 0
+            shortfall_percentage = 0
+        
+        # Calculate shortfall percentage
+        shortfall_percentage = (shortfall_mw / total_peak_demand) * 100 if total_peak_demand > 0 else 0
         
         return {
-            "affected_people": affected_people,
+            "affected_people": affected_people if shortfall_mw > 0 else 0,
             "affected_percentage": affected_percentage,
-            "shortfall_mw": shortfall,
+            "shortfall_mw": shortfall_mw,
             "shortfall_percentage": shortfall_percentage,
             "total_population": total_population,
-            "total_load_mw": total_load,
-            "total_generation_mw": total_generation
+            "total_peak_demand_mw": total_peak_demand,
+            "total_generation_mw": current_generation,
+            "per_person_mw": power_per_person,
+            "affected_areas": affected_areas,
+            "generation_change": generation_change
         }
         
     except Exception as e:
@@ -1566,18 +1774,81 @@ def display_outage_impact(impact_stats):
         
         with col2:
             st.metric("Power Shortfall", f"{impact_stats['shortfall_mw']:.1f} MW")
-            st.metric("Load that Cannot be Served", f"{impact_stats['shortfall_percentage']:.1f}%")
+            st.metric("Generation Deficit", f"{impact_stats['shortfall_percentage']:.1f}%")
+            
+        # Show system-wide metrics
+        st.subheader("Power System Overview")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Generation", f"{impact_stats['total_generation_mw']:.1f} MW")
+            if 'generation_change' in impact_stats:
+                delta = f"{impact_stats['generation_change']:.1f} MW"
+                delta_color = "normal" if impact_stats['generation_change'] >= 0 else "inverse"
+                st.metric("Generation Change", delta, delta_color=delta_color)
+        with col2:
+            st.metric("Total Peak Demand", f"{impact_stats.get('total_peak_demand_mw', impact_stats['shortfall_mw'] + impact_stats['total_generation_mw']):.1f} MW")
+        with col3:
+            if 'per_person_mw' in impact_stats:
+                st.metric("Power Required per Person", f"{impact_stats['per_person_mw']*1000:.2f} kW")
+        
+        # Show most affected areas if available
+        if 'affected_areas' in impact_stats and impact_stats['affected_areas']:
+            st.subheader("Affected Areas")
+            
+            # Create a dataframe for better display
+            areas_data = []
+            for area in impact_stats['affected_areas']:
+                if area['affected_people'] > 0:
+                    areas_data.append({
+                        'Area': area['area_name'],
+                        'Population': f"{area['population']:,}",
+                        'People Affected': f"{area['affected_people']:,}",
+                        'Outage %': f"{area['outage_percentage']:.1f}%",
+                        'Shortfall (MW)': f"{area['shortfall_mw']:.1f}"
+                    })
+            
+            if areas_data:
+                areas_df = pd.DataFrame(areas_data)
+                st.table(areas_df)
+                
+                # Create a simple visualization of outage distribution
+                if len(areas_data) > 1:
+                    st.subheader("Outage Distribution")
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    
+                    areas = [area['Area'] for area in impact_stats['affected_areas'] if area['affected_people'] > 0][:6]  # Limit to top 6
+                    affected = [area['affected_people'] for area in impact_stats['affected_areas'] if area['affected_people'] > 0][:6]
+                    
+                    if areas and affected:
+                        # Create horizontal bar chart
+                        y_pos = range(len(areas))
+                        ax.barh(y_pos, affected, align='center')
+                        ax.set_yticks(y_pos)
+                        ax.set_yticklabels(areas)
+                        ax.invert_yaxis()  # Labels read top-to-bottom
+                        ax.set_xlabel('People Without Power')
+                        ax.set_title('Most Affected Areas')
+                        
+                        # Add value labels to the bars
+                        for i, v in enumerate(affected):
+                            ax.text(v + 0.1, i, f"{v:,}", va='center')
+                            
+                        st.pyplot(fig)
             
         # Add description of how outages would likely be managed
         st.info("""
-         **How outages would be managed:**
+        **How outages would be managed:**
         
-        In a real grid emergency, controlled rolling blackouts would likely be implemented. 
-        Critical infrastructure (hospitals, emergency services) would be prioritized, with rotating 
-        outages affecting different areas to distribute the impact.
+        With the identified generation shortfall, grid operators would implement controlled rolling blackouts
+        focused on the areas shown above. Areas farthest from remaining generation sources typically 
+        experience outages first to maintain grid stability. Critical infrastructure would be prioritized
+        regardless of location.
+        
+        The outage percentages represent the portion of the population in each area that would experience 
+        power loss during peak demand periods.
         """)
     else:
-        st.success("There is sufficient generation to meet all demand - no expected power outages.")
+        st.success("There is sufficient generation to meet peak demand - no expected power outages.")
 
 def apply_compound_effects(mitigations, shocks):
     """Apply multiple mitigation and shock effects to the network in sequence"""
@@ -1682,7 +1953,7 @@ with col1:
 
 with col2:
     fossil_active = 'fossil' in st.session_state['active_shocks']
-    if st.button('Fossil Fuel Shortage', 
+    if st.button('Resource Shortage', 
                 type='primary' if fossil_active else 'secondary'):
         if fossil_active:
             st.session_state['active_shocks'].remove('fossil')
